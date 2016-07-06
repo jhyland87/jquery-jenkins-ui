@@ -403,6 +403,21 @@ if ( ! Array.prototype.remove ) {
 			return paramData;
 		},
 
+		/**
+		 * Jenkins Parameter Class - Returns an object that can be used to manage a Jenkins parameter
+		 *
+		 * @param 	{string}			paramName 			Name of the Jenkins parameter
+		 * @return 	{boolean,object}						If the parameter wasn't found, then false is returned, otherwise, an 
+		 *													object with various methods used to manage the parameter is returned.
+		 * @return 	{function} 			this.getValue		Function used to get the current value of the parameter
+		 * @return 	{function}			this.setValue 		Function used to set the value of the param
+		 * @return 	{function}			this.hideParam		Function to hide the parameter in the parameters table. This sets the 
+		 * 													CSS display property of the <tbody> containing the parameter to none 
+		 * @return 	{function}			this.showParam 		Function to show the parameter in the parameters table. This removes 
+		 * 													the CSS display property of the <tbody> containing the parameter 
+		 * @return 	{element}			this.$valueInput
+		 * @return 	{element}			this.$tbody 
+		 */
 		jenkinsParam: function ( paramName ) {
 			var _console = new Utils.console( 'Utils.jenkinsParam' ),
 				_param = {}
@@ -414,25 +429,25 @@ if ( ! Array.prototype.remove ) {
 			_param.$element = $( "input:hidden[value='"+ paramName +"']" )
 			
 			// jQuery handler for the table row of the parameter
-			_param.$tableRow = _param.$element
+			_param.$tbody = _param.$element
 				.parent( 'div[name="parameter"]')
 				.parent( 'td.setting-main' )
 				.parent( 'tr' )
 				.parent( 'tbody' )
 				
-			if( ! _param.$tableRow.length ){
+			if( ! _param.$tbody.length ){
 				_console.error( 'Error finding the table row for the parameter name %s', paramName )
 				return false
 			}
 
 			// Different parameter input types are named differently;  Most param inputs are named value...
 			if( _param.$element.next( "[name='value']" ).length ){
-				_param.$valueElement = _param.$element.next( "[name='value']" )
+				_param.$valueInput = _param.$element.next( "[name='value']" )
 			}
 			
 			// .. except for multi-select inputs
 			else if( _param.$element.next("[name='labels']" ).length ) {
-				_param.$valueElement = _param.$element.next( "[name='labels']" )
+				_param.$valueInput = _param.$element.next( "[name='labels']" )
 			}
 			
 			// If no element is found..
@@ -441,24 +456,142 @@ if ( ! Array.prototype.remove ) {
 				return false
 			}
 
-			this.getValue = function(){
-				_console.debug( 'Returning value %s for parameter %s', _param.$valueElement.val(), paramName )
-				return _param.$valueElement.val()
-			}
+			// Parameter input type
+			this.type = _param.$valueElement.prop( 'type' ) || undefined
+
+
+			// If theres no 'type' attribute, then try to deduce the type manually
+			if( ! _param.type ){
+				if( _param.$valueInput.is( 'multiselect' ) )
+					this.type = 'select-multiple'
+				
+				else if( _param.$valueInput.is( 'select' ) ) 
+					this.type = 'select-one'
 			
-			this.setValue = function( value ){
-				return _param.$valueElement.val( value )
+				else 
+					_console.error( 'Unable to determine the input type for parameter ' + paramName )
+			}
+			else if( this.type === 'checkbox' ){
+				//paramData.value = paramData.$valueElement.is( ':checked' )
+				//paramData.value = function() {
+				//	return _param.$valueInput.is( ':checked' )
+				//}
+			}
+			else {
+				// Anything here?
 			}
 
-			// Function to show the entire row in the parameters table
-			this.show = function(){
-				_param.$tableRow.css({ 'display': '' })
+			/**
+			 * Retrieve the value of the parameter
+			 *
+			 * @param 	{} 		
+			 * @return 	{string,array,boolean,null}		Depends on the input type of the parameter
+			 */
+			this.getValue = function(){
+				_console.debug( 'Returning value %s for parameter %s', _param.$valueInput.val(), paramName )
+
+				if( this.type === 'checkbox' )
+					return _param.$valueInput.is( ':checked' )
+
+				return _param.$valueInput.val()
 			}
 			
-			// Function to hide the entire row in teh parameters table
-			this.hide = function(){
-				_param.$tableRow.css({ 'display': 'none' })
+			/**
+			 * Set the value of the parameter
+			 *
+			 * @param 	{string,array,boolean}	value 	Value to set for parameter (value type depends on parameter type) 		
+			 * @return 	{void} 
+			 */
+			this.setValue = function( value ){
+				if( this.type === 'checkbox' )
+					return _param.$valueInput.prop( "checked", !!value )
+
+				return _param.$valueInput.val( value )
 			}
+
+			/**
+			 * Single method to act as both the getter and setter for the parameters value. If the value parameter is defined, then 
+			 * this will act as a setter, executing this.setValue(), otherwise, this.getValue() gets returned.
+			 *
+			 * @param 	{null,string,array,boolean}		value 	Value to set for parameter (value type depends on parameter type) 	
+			 * @return 	{void,string,array,boolean} 			If this is setting the value, then void will be returned, otherwise, 
+			 * 													this.getValue() will be returned
+			 */
+			this.value = function( value ){
+				if( typeof value !== 'undefined' )
+					return this.setValue( value )
+
+				return this.getValue()
+			}
+
+			/**
+			 * Method to show the parameter in the parameters table. This sets the CSS display property of the 
+			 * <tbody> containing the parameter to none
+			 *
+			 * @return 	{void}
+			 */
+			this.showParam = function(){
+				_param.$tbody.css({ 'display': '' })
+			}
+			
+			/**
+			 * Method to hide the parameter in the parameters table. This removes the CSS display property of the 
+			 * <tbody> containing the parameter
+			 *
+			 * @return 	{void}
+			 */
+			this.hideParam = function(){
+				_param.$tbody.css({ 'display': 'none' })
+			}
+
+			/**
+			 * Single method that can both show and hide the parameter by acting as a short to this.hideParam() and 
+			 * this.showParam. Which one gets executed depends on the value of the visible parameter
+			 *
+			 * @param 	{boolean} 	visible 	Determines the elements visibility. True = visible; False = invisible 
+			 * @return 	{void}
+			 */
+			this.visibility = function( visible ){
+				if( visible )
+					return this.showParam()
+				
+				return this.hideParam()
+			}
+
+			/**
+			 * Disables the parameters value input. Does so by setting the disabled property/attribute to true
+			 *
+			 * @return 	{void}
+			 */
+			this.disableParam = function(){
+				_param.$valueInput.attr( "disabled", true ).prop( "disabled", true )
+			}
+
+			/**
+			 * Enables the parameters value input. Does so by removing the disabled property/attribute 
+			 *
+			 * @return 	{void}
+			 */
+			this.enableParam = function(){
+				_param.$valueInput
+					.attr( "disabled", false )
+					.prop( "disabled", false )
+			}
+
+			/**
+			 * Set/Unset the readonly attribute/property of the parameter value input element
+			 *
+			 * @param 	{boolean}	readonly 	Enable/Disable readonly status (defaults to false)
+			 * @return 	{void} 	
+			 */
+			this.setReadOnly = function( readonly ){
+				_param.$valueInput
+					.attr('readonly', !!readonly )
+					.prop('readonly', !!readonly )
+			}
+
+			this.$tbody = _param.$tbody
+			this.$valueInput = _param.$valueInput
 
 			// Just some quick aliases...
 			this.getVal = this.getValue
@@ -584,12 +717,12 @@ if ( ! Array.prototype.remove ) {
 
 			param_ShowPass.$valueElement.change( function(){
 				var showPassVal = param_ShowPass.value()
-				_console.log('Show_Password Value:',showPassVal)
+				_console.log( 'Show_Password Value:',showPassVal )
 
 				if( showPassVal === true )
-					param_Password.show()
+					param_Password.showParam()
 				else
-					param_Password.hide()
+					param_Password.hideParam()
 			})
 		}
 	}
