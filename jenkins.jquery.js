@@ -415,12 +415,13 @@ if ( ! Array.prototype.remove ) {
 		 * 													CSS display property of the <tbody> containing the parameter to none 
 		 * @return 	{function}			this.showParam 		Function to show the parameter in the parameters table. This removes 
 		 * 													the CSS display property of the <tbody> containing the parameter 
-		 * @return 	{element}			this.$valueInput
-		 * @return 	{element}			this.$tbody 
+		 * @return 	{element}			this.$valueInput 	Handler for the value input jQuery element
+		 * @return 	{element}			this.$tbody  		Handler for the parameters <tbody> element in the parameters table
+		 * @return 	{function} 			this.onClick 		Shortcut to the jQuery onClick event handler
 		 */
 		jenkinsParam: function ( paramName ) {
 			var _console = new Utils.console( 'Utils.jenkinsParam' ),
-				_param = {}
+				_param   = {}
 
 			// Set the prefix for any console output via the internal debug/warn/error/log methods
 			//this._prefix = prefix || Utils.getCallerFuncName() || null
@@ -430,7 +431,7 @@ if ( ! Array.prototype.remove ) {
 			
 			// jQuery handler for the table row of the parameter
 			_param.$tbody = _param.$element
-				.parent( 'div[name="parameter"]')
+				.parent( 'div[name="parameter"]' )
 				.parent( 'td.setting-main' )
 				.parent( 'tr' )
 				.parent( 'tbody' )
@@ -457,11 +458,10 @@ if ( ! Array.prototype.remove ) {
 			}
 
 			// Parameter input type
-			this.type = _param.$valueElement.prop( 'type' ) || undefined
-
+			this.type = _param.$valueInput.prop( 'type' ) || undefined
 
 			// If theres no 'type' attribute, then try to deduce the type manually
-			if( ! _param.type ){
+			if( ! this.type ){
 				if( _param.$valueInput.is( 'multiselect' ) )
 					this.type = 'select-multiple'
 				
@@ -472,7 +472,7 @@ if ( ! Array.prototype.remove ) {
 					_console.error( 'Unable to determine the input type for parameter ' + paramName )
 			}
 			else if( this.type === 'checkbox' ){
-				//paramData.value = paramData.$valueElement.is( ':checked' )
+				//paramData.value = paramData.$valueInput.is( ':checked' )
 				//paramData.value = function() {
 				//	return _param.$valueInput.is( ':checked' )
 				//}
@@ -589,6 +589,9 @@ if ( ! Array.prototype.remove ) {
 					.attr('readonly', !!readonly )
 					.prop('readonly', !!readonly )
 			}
+
+			// Shortcut to onClick
+			this.onClick = _param.$valueInput.onClick
 
 			this.$tbody = _param.$tbody
 			this.$valueInput = _param.$valueInput
