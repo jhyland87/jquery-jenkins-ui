@@ -745,6 +745,10 @@ if ( ! Array.prototype.remove ) {
 
 		},
 
+		jobDetails: function(){
+			// Return job data such as an array of parameters, and...?
+		},
+
 		paramTest: function( reqDetails ){
 			var _console 		= new Utils.console( 'General.paramTest' ),
 				param_String 	= new Utils.jenkinsParam( 'String_Param' ),
