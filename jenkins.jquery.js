@@ -34,7 +34,9 @@ if ( ! Array.prototype.remove ) {
 		 * @param	{string}	httpPath	Value of window.location.pathname, or a string 
 		 *													following the same syntax
 		 */
-		init: function init( httpPath ){	
+		init: function init( httpPath ){
+			console.log( 'Welcome - jQuery Jenkins UI initiated' )
+			
 			var cnsl = new Utils.console( 'controller.init' )
 			// If the GET parameter 'debug' is set to 1 or true, or the window.debug variable is set to 1 or true, then enable debugging 
 			if( Utils.getUrlParam( 'debug' ) == 'true' || Utils.getUrlParam( 'debug' ) == '1' || window.debug == true || window.debug == 1 )
@@ -570,7 +572,7 @@ if ( ! Array.prototype.remove ) {
 				tmpVal
 
 			console.log( 'param_Fake', param_Fake )
-			
+
 			param_Boolean.$valueElement.change( function(){
 				tmpVal = param_String.getValue()
 
