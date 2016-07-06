@@ -99,8 +99,29 @@ if ( ! Array.prototype.remove ) {
 			*/
 
 			tester: function( reqDetails ){
+				console.log( 'reqDetails:', reqDetails )
 				if( reqDetails.job.name === 'test-job' && reqDetails.action === 'build' )
 					General.paramTest( reqDetails )
+			},
+
+			allBuilds: function( reqDetails ){
+				if( reqDetails.action === 'build' )
+					General.clearPasswordParams( reqDetails )
+			}
+		}
+	}
+
+	var Hooks = {
+		reqDetails: {
+			setEnvironment: function( reqDetails ){
+				var newStuff = {}
+				// See if this is in one of the environment folders, if so, set the env
+				if( $.inArray( reqDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
+					newStuff.env = reqDetails.job.segments[ 0 ]
+				else
+					newStuff.env = 'IDK'
+
+				return newStuff
 			}
 		}
 	}
@@ -241,7 +262,7 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{string}	obj.action						Action being taken - build, rebuild, configure, ws (workspace), move, etc 
 		 */
 		getReqDetails: function getReqDetails( reqPath ){
-			var cnsl = new Utils.console( 'Utils.getReqDetails' ),
+			var _console = new Utils.console( 'Utils.getReqDetails' ),
 			// Object to contain details about the current request (username, folder, build, etc)
 				reqDetails = {
 				// Default the username to null, reset it if found 
@@ -261,20 +282,21 @@ if ( ! Array.prototype.remove ) {
 			if( $accountLink ){
 				if( $accountLink.attr('href') ){
 					var linkHrefMatch = $accountLink.attr('href').match( /^\/user\/(.*)$/ )
+
 					if( linkHrefMatch ){
-						cnsl.debug( 'Username: ' + linkHrefMatch[1])
+						_console.debug( 'Username: ' + linkHrefMatch[1])
 						reqDetails.username = linkHrefMatch[1]
 					}
 					else {
-						cnsl.debug( 'Href not matched' )
+						_console.debug( 'Href not matched' )
 					}
 				}
 				else {
-					cnsl.debug( 'No href in profile link' )
+					_console.debug( 'No href in profile link' )
 				}
 			}
 			else {
-				cnsl.debug( 'No account link found' )
+				_console.debug( 'No account link found' )
 			}
 
 			// Get the job path and job segments from the URL
@@ -296,15 +318,28 @@ if ( ! Array.prototype.remove ) {
 			// Set the job name
 			reqDetails.job.name = reqDetails.job.segments.slice(-1)[0] 
 
-			// See if this is in one of the environment folders, if so, set the env
-			if( $.inArray( reqDetails.job.segments[0], settings.envFolders ) !== -1 )
-				reqDetails.env = reqDetails.job.segments[0]
-
 			// Get the action being performed
 			var actionMatch = reqPath.match( /\/(build|configure|ws|rebuild|changes|move|jobConfigHistory)\/?$/ )
 			
 			if( actionMatch )
 				reqDetails.action = actionMatch[1]
+
+			var tmpReqDetails
+
+			$.each( Hooks.reqDetails, function( hook, func ){
+				_console.debug( 'Executing reqDetails hook %s', hook)
+
+				tmpReqDetails = func( reqDetails )
+
+				if( typeof tmpReqDetails === 'object' ){
+					//reqDetails = tmpReqDetails
+					$.extend( reqDetails, tmpReqDetails );
+				}
+				else {
+					_console.warn( 'The reqDetails hook %s did not return an object, it returned typeof: %s', hook, typeof tmpReqDetails)
+				}
+
+			});
 
 			return reqDetails
 		},
@@ -322,10 +357,10 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{function}	obj.show					Function to show the parameter in the Parameters table (removes css display prop)
 		 */
 		getJenkinsParam: function getJenkinsParam( paramName ){
-			var cnsl = new Utils.console( 'Utils.getJenkinsParam' )
+			var _console = new Utils.console( 'Utils.getJenkinsParam' )
 			
 			if( ! paramName ){
-					cnsl.error( 'No param name provided' )
+					_console.error( 'No param name provided' )
 					return false
 			}
 			
@@ -342,7 +377,7 @@ if ( ! Array.prototype.remove ) {
 				.parent( 'tbody' )
 				
 			if( ! paramData.$tableRow.length ){
-				cnsl.warn( 'Error finding the table row for the parameter name %s', paramName )
+				_console.warn( 'Error finding the table row for the parameter name %s', paramName )
 				paramData.$tableRow = null
 			}
 			
@@ -368,7 +403,7 @@ if ( ! Array.prototype.remove ) {
 			
 			// If no element is found..
 			else {
-				cnsl.error( 'No parameter found with the name', paramName )
+				_console.error( 'No parameter found with the name', paramName )
 				return false
 			}
 			
@@ -387,7 +422,7 @@ if ( ! Array.prototype.remove ) {
 					paramData.type = 'select-one'
 				
 				else 
-					cnsl.error( 'Unable to determine the input type for parameter ' + paramName )
+					_console.error( 'Unable to determine the input type for parameter ' + paramName )
 			}
 			else {
 				if( paramData.type === 'checkbox' ){
@@ -398,7 +433,7 @@ if ( ! Array.prototype.remove ) {
 				}
 			}
 		
-			cnsl.debug( 'Param: ' + paramName, paramData )
+			_console.debug( 'Param: ' + paramName, paramData )
 			
 			return paramData;
 		},
@@ -415,6 +450,10 @@ if ( ! Array.prototype.remove ) {
 		 * 													CSS display property of the <tbody> containing the parameter to none 
 		 * @return 	{function}			this.showParam 		Function to show the parameter in the parameters table. This removes 
 		 * 													the CSS display property of the <tbody> containing the parameter 
+		 * @return 	{function} 			this.visibility 	Just a wrapper around the this.hideParam() and this.showParam()
+		 * @return 	{function}			this.setReadOnly 	Set/Unset the 'readonly' attribute of the parameter input (Accepts a boolean) 
+		 * @return 	{function}			this.disableParam 	Disables the parameter input field by adding a 'disabled' attribute
+		 * @return 	{function}			this.enableParam 	Enables the parameter input field by removing the 'disabled' attribute		
 		 * @return 	{element}			this.$valueInput 	Handler for the value input jQuery element
 		 * @return 	{element}			this.$tbody  		Handler for the parameters <tbody> element in the parameters table
 		 * @return 	{function} 			this.onClick 		Shortcut to the jQuery onClick event handler
@@ -639,21 +678,21 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}										Returns nothing
 		 */
 		setParamVisibility: function setParamVisibility( paramName, visible ){
-			var	cnsl = new Utils.console( 'Utils.setParamVisibility' ),
+			var	_console = new Utils.console( 'Utils.setParamVisibility' ),
 					thisParam,
 					verb = ( visible === false ? 'hiding' : 'showing' )
 			
 			if( typeof paramName === 'undefined' ){
-				cnsl.debug( 'Utils.setParamVisibility called, but no parameter names were provided' )
+				_console.debug( 'Utils.setParamVisibility called, but no parameter names were provided' )
 				return 
 			}
 			
 			// If one param was provided (in string format), then just process that one
 			if( typeof paramName === 'string' ){
-				cnsl.debug( 'Utils.setParamVisibility called with a string as the parameter - %s single parameter: %s', verb, paramName )
+				_console.debug( 'Utils.setParamVisibility called with a string as the parameter - %s single parameter: %s', verb, paramName )
 				
 				if( ! Utils.doesParamExist( paramName ) ){
-					cnsl.error( 'Failed to %s parameter - unable to find any parameter with the name "%s"', verb, paramName )
+					_console.error( 'Failed to %s parameter - unable to find any parameter with the name "%s"', verb, paramName )
 					return 
 				}
 				
@@ -669,15 +708,15 @@ if ( ! Array.prototype.remove ) {
 			
 			// If an array was provided, then assume there was multiple, iterate through them
 			if( $.isArray( paramName ) ){
-				cnsl.debug( 'Utils.setParamVisibility called, an array of parameter names was provided: %s', paramName.join(', ') )
+				_console.debug( 'Utils.setParamVisibility called, an array of parameter names was provided: %s', paramName.join(', ') )
 				
 				paramName.each( function( param ) {
 					if( ! Utils.doesParamExist( param ) ){
-						cnsl.error( 'Unable to find a Jenkins parameter with the name %s - Skipping to next param name in list' )
+						_console.error( 'Unable to find a Jenkins parameter with the name %s - Skipping to next param name in list' )
 						return true
 					}
 					
-					cnsl.debug( '%s the jenkins parameter %s', verb, param)
+					_console.debug( '%s the jenkins parameter %s', verb, param)
 					
 					thisParam = Utils.getJenkinsParam( param )
 				
@@ -692,20 +731,30 @@ if ( ! Array.prototype.remove ) {
 			}
 			
 			// If this is reached, then paramName wasnt a string or an array
-			cnsl.error( 'Unable to %s any parameters - Neither a string or an array was provided', verb )
+			_console.error( 'Unable to %s any parameters - Neither a string or an array was provided', verb )
 			return
 		}
 	}
 
 	var General = {
+		/**
+		 * Watch for any changes to any input parameters for a build, if anything gets changed, then show 
+		 * a confirmation when the viewer tries to leave the page without submitting the build
+		 */
+		confirmLeave: function( reqDetails ){
+
+		},
+
 		paramTest: function( reqDetails ){
-			var _console = new Utils.console( 'General.paramTest' ),
-				param_String = new Utils.jenkinsParam( 'String_Param' ),
-				param_Fake = new Utils.jenkinsParam( 'Fake_Param' ),
-				param_Password = new Utils.jenkinsParam( 'Password_Param' ),
-				param_Boolean = Utils.getJenkinsParam( 'Boolean_Param' ),
-				param_ShowPass = Utils.getJenkinsParam( 'Show_Password' ),
+			var _console 		= new Utils.console( 'General.paramTest' ),
+				param_String 	= new Utils.jenkinsParam( 'String_Param' ),
+				param_Fake 		= new Utils.jenkinsParam( 'Fake_Param' ),
+				param_Password 	= new Utils.jenkinsParam( 'Password_Param' ),
+				param_Boolean 	= Utils.getJenkinsParam( 'Boolean_Param' ),
+				param_ShowPass 	= Utils.getJenkinsParam( 'Show_Password' ),
 				tmpVal
+
+			_console.log( 'String_Param Instanceof:', param_String instanceof Utils.jenkinsParam )
 
 			console.log( 'param_Fake', param_Fake )
 
@@ -727,6 +776,210 @@ if ( ! Array.prototype.remove ) {
 				else
 					param_Password.hideParam()
 			})
+		},
+
+		/**
+		 * Apply any dynamic style attributes that are easier to accomplish in Jenkins via jQuery rather than CSS
+		 * 
+		 * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+		 * @return	{void}								This function just cancels a form submission at the most.
+		 */
+		styleViajQuery: function styleViajQuery( reqDetails ){
+			$('required').replaceWith( 
+				$('<span/>', {
+					class: 'required-param',
+					text: '(Required)'
+				}) 
+			)
+		},
+		
+		/**
+		 * Looks for any parameters that have a <required/> element in the description, and cancels the build 
+		 * submission if any of said parameters are not populated.
+		 * 
+		 * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+		 * @return	{void}								This function just cancels a form submission at the most.
+		 */
+		requireBuildParams: function requireBuildParams( reqDetails ){
+			var	cnsl = new utils.console( 'General.requireBuildParams' ),
+					$paramForm = $( 'form[name="parameters"]' ),
+					$reqElements = $( 'required, span.required-param' ), 
+					reqParams = {}, 
+					emptyParams = [], 
+					$reqElem, 
+					paramName,
+					thisVal
+			
+			function isEmpty( val ){
+				if( typeof val === 'object' )
+					return val.length === 0
+				
+				else 
+					return val == ''
+			}
+			
+			function getRequiredParams(){
+				$reqElements = $( 'required, span.required-param' )
+				// Look for the parameter name of any <required> elements
+				$reqElements.each(function( k, re ){
+					$reqElem = $( re ).closest('tbody').children('tr:first').children('td.setting-name')
+					
+					if( ! $reqElem.length ){
+						cnsl.warn( 'couldnt find a param' )
+					}
+					else {
+						paramName = $.trim( $reqElem.text() )
+						
+						cnsl.debug('Adding the parameter %s to the required parameters list',  paramName )
+					
+						reqParams[ paramName ] = utils.getJenkinsParam( paramName )
+					}
+				})
+				
+				return reqParams
+			}
+			
+			/*
+			// Look for the parameter name of any <required> elements
+			$reqElements.each(function( k, re ){
+				$reqElem = $( re ).closest('tbody').children('tr:first').children('td.setting-name')
+				
+				if( ! $reqElem.length ){
+					utils.console.warn( 'couldnt find a param' )
+				}
+				else {
+					paramName = $.trim( $reqElem.text() )
+					
+					utils.console.debug('Adding the parameter %s to the required parameters list',  paramName )
+				
+					reqParams[ paramName ] = utils.getJenkinsParam( paramName )
+				}
+			})
+			*/
+			
+			
+			
+			// Validate the parameter inputs when the form gets submitted
+			$paramForm.submit(function( e ) {
+				//e.preventDefault()
+				
+				reqParams = getRequiredParams()
+				
+				// If none were marked required, just quit
+				if( $.isEmptyObject( reqParams ) ){
+					cnsl.debug( 'Not requiring any parameters for this build - None were found' )
+					return true
+				}
+			
+				$.each( reqParams, function( name, param ){
+					thisVal = param.value()
+					
+					cnsl.debug( 'The parameter "%s" has te value "%s"', name, param.value() )
+					
+					if( thisVal.length === 0 )
+						emptyParams.push( name )	
+				})
+
+				if( emptyParams.length > 0 ){
+					alert( "Unable to submit build - " + ( emptyParams.length === 1 ? '1 required parameter' : emptyParams.length + ' required parameters') + 
+					" were not populated:\n\n- " + emptyParams.join("\n- ") + 
+					"\n\nPlease fill out the above parameters and try to execute the build again." )
+					return false
+				}
+				else {
+					//$paramForm.submit()
+					return true
+				}
+			})
+		},
+		
+		/**
+		 * Function to get executed on the build jobs which will clear the value of the password parameters. 
+		 * Those params can sometimes get auto-populated via the browser, which can cause confusion.
+		 *
+		 * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+		 * @return	{void}							This function just interacts with the CSS style of HTML elements
+		 */
+		clearPasswordParams: function clearPasswordParams( reqDetails ){
+			var $pwdInputs = $( 'input.setting-input:password' )
+
+			$pwdInputs.each(function( i, pi ) {
+				$( pi ).val( '' )
+			})
+		},
+		
+		/**
+		 * Set the build description for the current build. This is done by looking for any 'build-description' elements 
+		 * (or other names listed below), and using the HTML of said elements as the HTML of a newly created div 
+		 * that will be inserted below the jobs <h1> title. This gets executed for the 'build' action of every job.
+		 *
+		 * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+		 * @return	{void}
+		 */
+		setBuildPageDescription: function setBuildPageDescription( reqDetails ){
+			var	cnsl = new utils.console( 'General.setBuildPageDescription' ),
+					$buildDesc = $( 'builddesc, builddescription, build-desc, build-description' ),
+					descHtml, thisDesc
+						
+			if( $buildDesc.length === 0 )
+				return
+			
+			// If theres just one description tag, then keep it simple
+			if( $buildDesc.length === 1 ){
+				cnsl.debug( 'Only one build desc tag' )
+				thisDesc = $.trim( $buildDesc.html() )
+				
+				cnsl.debug( 'Adding build desc text "' + thisDesc + '" to the listItems array' )
+				
+				if( thisDesc == '' )
+					return
+				
+				descHtml = thisDesc
+			}
+			
+			// If theres more than one, then loop over them to create an unordered list
+			else {
+				cnsl.debug( $buildDesc.lengt + ' build desc tags FOUND' )
+				
+				var listItems = []
+				
+				// Loop through each build-description elements, creating an array of list items for the unordered list
+				$.each( $buildDesc, function( k, v ){
+					thisDesc = $.trim( $( v ).html() )
+					
+					cnsl.debug( 'Adding build desc text "' + thisDesc + '" to the listItems array' )
+					
+					if( thisDesc != '' )
+						listItems.push( {
+							content: thisDesc,
+							classes: utils.getElementAttrs( $( v ) )
+						} )
+				})
+				
+				// If theres nothing found, dont add the div
+				if( listItems.length == 0 )
+					return
+				
+				// If theres just one list item, then dont show it in a list
+				if( listItems.length == 1 ){
+					descHtml = listItems[ 0 ]
+				}
+				
+				// More than one list item gets a pretty unordered list formatted
+				else {
+					descHtml = '<ul class="build-description">'
+					
+					$.each( listItems, function( k, v ){
+						descHtml += '<li class="' + v.classes.join(' ') + '">' + v.content + '</li>'
+					})
+					
+					descHtml += '</ul>'
+				}
+			}
+			
+			cnsl.debug( 'Setting the description content to:', descHtml )
+			
+			$( '<div class="additional-job-details">' + descHtml + '</div>' ).insertAfter( 'div#main-panel > h1' )
 		}
 	}
 })(jQuery)
