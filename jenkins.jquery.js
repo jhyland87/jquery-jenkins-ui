@@ -1,4 +1,51 @@
-// Add a function to the Array prototype for removing an element (or elements) from the array
+/**
+ * Jenkins Custom JavaScript/jQuery Code
+ * Author: Justin Hyland
+ * Created: 06/01/16
+ * Updated: 06/30/16
+ * This file is loaded by Jenkins via the Simple Theme Plugin (https://wiki.jenkins-ci.org/display/JENKINS/Simple+Theme+Plugin) 
+ * in combination with the jQuery Plugin (https://wiki.jenkins-ci.org/display/JENKINS/jQuery+Plugin), and is used to introduce any 
+ * customized functionality for the UI, such as setting parameter values based on other parameter values or the job name, etc.
+ * 
+ * Logic:	The controller.init gets executed on document.ready, and attempts to deduce the viewers username (via the profile link 
+ * 		  	in the upper right), and details about the job (via the URL). Since all jobs are separated into the appropriate folder named
+ * 		  	after the environment (in the top level), thats how the environment is retrieved, as well as the job name and folder name.
+ *			  	Then it's easy to tell if this is a build being executed by searching for /build on the end of the URL. 
+ *				Once the controller.init retrieves all of the above information (known as Request Details), it iterates through the functions
+ *				stored in controller.jenkinsFunctions, executing them in the order they're stored, and handing the request details as the 
+ *				parameter.
+ *
+ * Notes:	
+ *		- 	To add some debugging output to the console, instead of just using console.debug, use utils.console.debug, which is just
+ *			a wrapper around console.debug, but will only execute if debugging is enabled.
+ *		- 	Enable debugging by adding debug=1 to the URL request parameters, or setting window.debug to 1 or true
+ *		- 	To add a function to be executed, create the function anywhere (EG: Deployments object contains some functions), and add
+ *			it to the controller.jenkinsFunctions object, in the order it should be called. It will be executed and passed an object as the only
+ *			parameter. The object will contain most of the detail about the request that you would need. Heres the layout of the object:
+ *	{
+ *	 	username: john.d,
+ *	 	action: null, build, ws, configure,
+ *	 	env: null, Development, Staging, Production,
+ *	 	job: {
+ *			name: Job Name,
+ *		 	path: /Path/To/Job,
+ *		 	segments: [ Path, To, Job ]
+ *	 	}
+ * }
+ * 
+ * Implemented Functionality:
+ * 	- 	Deployments.setDeployRepo gets executed for the job titled Deploy_WebApp within any environment, and simply updates the
+ *			parameter named Repository whenever the Web_Application parameter is changed. The Repository value is based off of the 
+ *			Web_Application value. The purpose is to assist the builder in selecting the proper repository for the Web_Application being 
+ *			being deployed. Deploying the wrong repository to a web application would be a big problem.
+ *
+ *
+ * TODO:
+ *		- Deployments.manageEnvParams() needs to be able to work with silo'd environments, like preprod, where theres no a/b
+ *		- Fix the getReqDetails() function, the job segments, name and env are incorrect for pre-prod
+ */
+ 
+ // Add a function to the Array prototype for removing an element (or elements) from the array
 if ( ! Array.prototype.remove ) {
 	Array.prototype.remove = function( val ) {
 		var i = this.indexOf( val )
@@ -15,12 +62,19 @@ if ( ! Array.prototype.remove ) {
 		envFolders: [
 			'Production', 'Development', 'Staging', 'Pre-Prod'
 		],
+		buildActions: [
+			'build', 'rebuild'
+		],
+		// List of repositories for projects that do utilize the .env file
+		envDependentApps: [ 
+			'API','WebApp' 
+		],
 		// Enable/disable debugging - This is overridden by setting the debug value in the request params
 		debug: false
 	}
 	
 	$( document ).ready(function() {
-		controller.init( window.location.pathname )
+		controller.init( )
 	})
 	
 	/**
@@ -37,18 +91,18 @@ if ( ! Array.prototype.remove ) {
 		init: function init( httpPath ){
 			console.log( 'Welcome - jQuery Jenkins UI initiated' )
 			
-			var cnsl = new Utils.console( 'controller.init' )
+			var _console = new Utils.console( 'controller.init' )
 			// If the GET parameter 'debug' is set to 1 or true, or the window.debug variable is set to 1 or true, then enable debugging 
 			if( Utils.getUrlParam( 'debug' ) == 'true' || Utils.getUrlParam( 'debug' ) == '1' || window.debug == true || window.debug == 1 )
 				settings.debug = true
 			
-			var reqDetails = Utils.getReqDetails( httpPath )
+			var pageDetails = new Utils.pageDetails( httpPath )
 			
-			cnsl.debug( 'Request Details: ', reqDetails )
+			_console.debug( 'Request Details: ', pageDetails )
 			
-			$.each(controller.jenkinsFunctions, function( name, func ){
-				cnsl.debug('Executing ' + name)
-				func( reqDetails )
+			$.each( controller.jenkinsFunctions, function( name, func ){
+				_console.debug('Executing ' + name)
+				func( pageDetails )
 			})
 		},
 		
@@ -58,63 +112,106 @@ if ( ! Array.prototype.remove ) {
 		jenkinsFunctions: {
 			/*
 			// Add some cool style stuff to the build pages
-			styleViajQuery: function( reqDetails ){
-				if( reqDetails.action === 'build' )
-					General.styleViajQuery( reqDetails )
+			styleViajQuery: function( pageDetails ){
+				if( pageDetails.action === 'build' )
+					General.styleViajQuery( pageDetails )
 			},
 			
 			// Set Build Description for any builds
-			setBuildDescription: function( reqDetails ){
-				if( reqDetails.action === 'build' )
-					General.setBuildPageDescription( reqDetails )
+			setBuildDescription: function( pageDetails ){
+				if( pageDetails.action === 'build' )
+					General.setBuildPageDescription( pageDetails )
 			},
 			
 			// Sets the Repository parameter based on the Web_Application value - Should excecute for any deployment builds 
-			webappDeploySetRepo: function( reqDetails ){	
+			webappDeploySetRepo: function( pageDetails ){	
 				// Only execute the setDeployRepo if the job is a Deploy_WebApp job, and we're on the build form
-				if( reqDetails.job.name === 'Deploy_WebApp' && reqDetails.action === 'build' )
-					Deployments.setDeployRepo( reqDetails )
+				if( pageDetails.job.name === 'Deploy_WebApp' && pageDetails.action === 'build' )
+					Deployments.setDeployRepo( pageDetails )
 			},
 			
 			// Change the status of the env param fields based on the Update_Env_File checkbox value
-			webappConfigureEnvParams: function( reqDetails ){
+			webappConfigureEnvParams: function( pageDetails ){
 				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
-				if( $.inArray( reqDetails.job.name, runOnJobs ) !== -1 && reqDetails.action === 'build' )
-					Deployments.manageEnvParams( reqDetails )
+				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1 && pageDetails.action === 'build' )
+					Deployments.manageEnvParams( pageDetails )
 			},
 			
 			// Clear the password parameters of the build jobs, which can be auto populated by the browser, which is misleading
-			clearPasswordParams: function ( reqDetails ){
+			clearPasswordParams: function ( pageDetails ){
 				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
-				if( $.inArray( reqDetails.job.name, runOnJobs ) !== -1 && reqDetails.action === 'build' )
-					General.clearPasswordParams( reqDetails )
+				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1 && pageDetails.action === 'build' )
+					General.clearPasswordParams( pageDetails )
 			},
 			
 			// Enforce specific parameters to be populated before the build form can be submitted
-			requireBuildParams: function( reqDetails ){
+			requireBuildParams: function( pageDetails ){
 				return // Disabled for now
-				if( reqDetails.action === 'build' )
-					General.requireBuildParams( reqDetails )
+				if( pageDetails.action === 'build' )
+					General.requireBuildParams( pageDetails )
 			}
 			*/
-
-			tester: function( reqDetails ){
-				console.log( 'reqDetails:', reqDetails )
-				if( reqDetails.job.name === 'test-job' && reqDetails.action === 'build' )
-					General.paramTest( reqDetails )
+			// Add some cool style stuff to the build pages
+			styleViajQuery: function( pageDetails ){
+				if( $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+					General.styleViajQuery( pageDetails )
+			},
+			
+			// Sets the Repository parameter based on the Web_Application value - Should excecute for any deployment builds 
+			webappDeploySetRepo: function( pageDetails ){	
+				// Only execute the setDeployRepo if the job is a Deploy_WebApp job, and we're on the build form
+				if( pageDetails.job.name === 'Deploy_WebApp' && $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+					Deployments.setDeployRepo( pageDetails )
+			},
+			
+			// Change the status of the env param fields based on the Update_Env_File checkbox value
+			webappConfigureEnvParams: function( pageDetails ){
+				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
+				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1 && $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+					Deployments.manageEnvParams( pageDetails )
+			},
+			
+			// Change the status of the env param fields based on the Update_Env_File checkbox value
+			webappConfigureEnvParams: function( pageDetails ){
+				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
+				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1 && $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+					Deployments.manageEnvParams( pageDetails )
 			},
 
-			allBuilds: function( reqDetails ){
-				if( reqDetails.action === 'build' )
-					General.clearPasswordParams( reqDetails )
+			// Functions I want to execute on all builds
+			allBuilds: function( pageDetails ){
+				//var req = new Utils.pageDetails()
+				
+				console.log('Utils.pageDetails username: %s', pageDetails.username )
+	
+				// Clear the password parameter values on any build/rebuild actions
+				if( $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+					General.clearPasswordParams( pageDetails )
+				else 
+					console.log( 'The action %s is not a build action', pageDetails.action )
 			}
 		}
 	}
-
+	
+	/**
+	 * Hooks are used to add your own functionality to the Jenkins jQuery UI
+	 */
 	var Hooks = {
+		/**
+		 * Hooks.reqDetails can be anything that updates the request details object thats given to the functions 
+		 * that get executed by the controller
+		 */
 		reqDetails: {
+			/**
+			 * Determine if the 
+			 */
 			setEnvironment: function( reqDetails ){
-				var newStuff = {}
+				
+				// See if this is in one of the environment folders, if so, set the env
+				if( $.inArray( reqDetails.job.segments[0], settings.envFolders ) !== -1 )
+					reqDetails.env = reqDetails.job.segments[0]
+			
+				/*var newStuff = {}
 				// See if this is in one of the environment folders, if so, set the env
 				if( $.inArray( reqDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
 					newStuff.env = reqDetails.job.segments[ 0 ]
@@ -122,6 +219,28 @@ if ( ! Array.prototype.remove ) {
 					newStuff.env = 'IDK'
 
 				return newStuff
+				*/
+			},
+			
+			/**
+			 * Just an example function hook that adds some properties to the Utils.pageDetails object
+			 */
+			addProperties: function( reqDetailsObj ){
+				if( ! ( reqDetailsObj instanceof Utils.pageDetails ) ){
+						console.warn( 'Hooks.reqDetails.modifyObj was was given something that was NOT an instance of Utils.pageDetails' )
+						return false
+				}
+				
+				$.extend( reqDetailsObj, {
+					location: {
+						pathname: window.location.pathname
+					},
+					alert: function( msg ){
+						alert( 'Jenkins Alert: ' + msg )
+					}
+				} )
+				
+				return reqDetailsObj
 			}
 		}
 	}
@@ -249,6 +368,122 @@ if ( ! Array.prototype.remove ) {
 		},
 		
 		/**
+		 * Request Details object
+		 *
+		 * @todo 	Add a method that can enable/disable the Build button on the build form.
+		 */
+		pageDetails: function( reqPath ){
+			if( reqPath === undefined )
+				reqPath = window.location.pathname
+			
+			var 	thisClass = this,			
+					_console = new Utils.console( 'Utils.pageDetails' ),
+					// Try to get the users login from the profile link 
+					$accountLink = $( 'div.login > span > a' ),
+					// Get the job path and job segments from the URL
+					jobMatch = reqPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
+					segs
+			
+			
+			thisClass.username = undefined
+			
+			thisClass.job = {
+				name: null,
+				path: '',
+				segments: []
+			}
+			
+			thisClass.action = undefined
+			
+						
+			if( $accountLink ){
+				if( $accountLink.attr('href') ){
+					var linkHrefMatch = $accountLink.attr('href').match( /^\/user\/(.*)$/ )
+
+					if( linkHrefMatch ){
+						_console.debug( 'Username: ' + linkHrefMatch[1])
+						thisClass.username = linkHrefMatch[1]
+					}
+					else {
+						_console.debug( 'Href not matched' )
+					}
+				}
+				else {
+					_console.debug( 'No href in profile link' )
+				}
+			}
+			else {
+				_console.debug( 'No account link found' )
+			}
+			
+			// Loop through the job matches and only get the part thats the job name
+			// TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
+			if( jobMatch ){
+				$.each( jobMatch, function( k, j ){	
+					j = j.replace(/^\//g, '')
+					segs = j.split( '/' )
+					
+					thisClass.job.path = thisClass.job.path + '/' + segs[1]
+					thisClass.job.segments.push( segs[1] )
+				})
+			}
+			
+			// Set the job name
+			thisClass.job.name = thisClass.job.segments.slice(-1)[0] 
+
+			// Get the action being performed
+			var actionMatch = reqPath.match( /\/(build|configure|ws|rebuild|changes|move|jobConfigHistory)\/?$/ )
+			
+			if( actionMatch )
+				thisClass.action = actionMatch[1]
+			
+			// If there are any request details function hooks, execute them
+			if( typeof Hooks.reqDetails === 'object' ){
+				var tmpReqDetails
+				
+				$.each( Hooks.reqDetails, function( name, hook ){
+					_console.debug( 'Processing pageDetails function hook "%s" (typeof: %s)', name, typeof hook )
+					
+					// The hooks must be functions! Anything else gets ignored
+					if( typeof hook === 'function' ){
+						_console.debug( 'Executing reqDetails hook function %s', name )
+						
+						try {
+							tmpReqDetails = hook( thisClass )
+							
+							if( tmpReqDetails instanceof Utils.pageDetails ){
+								_console.debug('Request details hook %s returned a modified Utils.pageDetails object - using the modified returned object', name )
+								//reqDetails = tmpReqDetails
+							}
+							else if( typeof tmpReqDetails === 'object' ){
+								_console.debug( 'Request details hook %s returned an object, adding each object item to the Utils.pageDetails prototype', name )
+								
+								$.each( tmpReqDetails, function( n, v ){
+									Utils.pageDetails.prototype[ n ] = v
+									_console.debug( 'Created prototype item Utils.pageDetails.prototype.%s from hook %s (typeof = %s)', n, n, typeof v)
+								})
+							}
+							else {
+								_console.warn( 'The reqDetails hook %s did not return an object or an instance of Utils.pageDetails, it returned typeof: %s', name, typeof tmpReqDetails)
+							}
+						}
+						catch( err ){
+							_console.error( 'There was an exception thrown when executing the request details hook %s: %s', name, err.message)
+						}
+					}
+					
+					// Any hooks that arent functions should just be added as prototype elements
+					else {
+						_console.warn( 'Skipping pageDetails hook %s due to nvalid type - expected a function, found a %s', name, typeof hook )
+					}					
+				})
+			}
+			else if( Hooks.reqDetails !== undefined ) {
+				_console.warn( 'Invalid type found for Hooks.reqDetails - Expecting an object, found typeof: %s', typeof Hooks.reqDetails )
+			}
+		},
+		
+		/**
 		 * Compile a detailed list of info about the request, such as the job, the environment, the action, and the username 
 		 * of the viewer (if set). Most of this is retrieved by parsing the URL. 
 		 *
@@ -262,6 +497,9 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{string}	obj.action						Action being taken - build, rebuild, configure, ws (workspace), move, etc 
 		 */
 		getReqDetails: function getReqDetails( reqPath ){
+			if( reqPath === undefined )
+				reqPath = window.location.pathname
+			
 			var _console = new Utils.console( 'Utils.getReqDetails' ),
 			// Object to contain details about the current request (username, folder, build, etc)
 				reqDetails = {
@@ -323,24 +561,26 @@ if ( ! Array.prototype.remove ) {
 			
 			if( actionMatch )
 				reqDetails.action = actionMatch[1]
+			
+			// If there are any request details function hooks, execute them
+			if( typeof Hooks.reqDetails === 'object' ){
+				var tmpReqDetails
+				
+				$.each( Hooks.reqDetails, function( hook, func ){
+					_console.debug( 'Executing reqDetails hook %s', hook)
 
-			var tmpReqDetails
+					tmpReqDetails = func( reqDetails )
 
-			$.each( Hooks.reqDetails, function( hook, func ){
-				_console.debug( 'Executing reqDetails hook %s', hook)
-
-				tmpReqDetails = func( reqDetails )
-
-				if( typeof tmpReqDetails === 'object' ){
-					//reqDetails = tmpReqDetails
-					$.extend( reqDetails, tmpReqDetails );
-				}
-				else {
-					_console.warn( 'The reqDetails hook %s did not return an object, it returned typeof: %s', hook, typeof tmpReqDetails)
-				}
-
-			});
-
+					if( typeof tmpReqDetails === 'object' ){
+						//reqDetails = tmpReqDetails
+						$.extend( reqDetails, tmpReqDetails );
+					}
+					else {
+						_console.warn( 'The reqDetails hook %s did not return an object, it returned typeof: %s', hook, typeof tmpReqDetails)
+					}
+				})
+			}
+			
 			return reqDetails
 		},
 		
@@ -351,7 +591,7 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{string}		obj.type					Type of input (checkbox, select, multiselect, radio, text, textarea)
 		 * @return	{function}	obj.value					Retrieve the value of the parameter 
 		 * @return	{element}	obj.$element			jQuery element for parameter name (hidden field)
-		 * @return	{element}	obj.$valueElement	jQuery element for parameter input
+		 * @return	{element}	obj.$valueInput	jQuery element for parameter input
 		 * @return	{element}	obj.$tableRow			jQuery element for the parameters parents tbody row in the table
 		 * @return	{function}	obj.hide					Function to hide the parameter in the Parameters table (sets css display: none)
 		 * @return	{function}	obj.show					Function to show the parameter in the Parameters table (removes css display prop)
@@ -393,12 +633,12 @@ if ( ! Array.prototype.remove ) {
 			
 			// Different parameter input types are named differently;  Most param inputs are named value...
 			if( paramData.$element.next("[name='value']" ).length ){
-				paramData.$valueElement = paramData.$element.next("[name='value']" )
+				paramData.$valueInput = paramData.$element.next("[name='value']" )
 			}
 			
 			// .. except for multi-select inputs
 			else if( paramData.$element.next("[name='labels']" ).length ) {
-				paramData.$valueElement = paramData.$element.next("[name='labels']" )
+				paramData.$valueInput = paramData.$element.next("[name='labels']" )
 			}
 			
 			// If no element is found..
@@ -407,18 +647,18 @@ if ( ! Array.prototype.remove ) {
 				return false
 			}
 			
-			paramData.type = paramData.$valueElement.prop( 'type' )
+			paramData.type = paramData.$valueInput.prop( 'type' )
 			
 			paramData.value = function(){
-				return paramData.$valueElement.val()
+				return paramData.$valueInput.val()
 			}
 			
 			// If theres no 'type' attribute, then try to deduce the type manually
 			if( ! paramData.type ){
-				if( paramData.$valueElement.is( 'multiselect' ) )
+				if( paramData.$valueInput.is( 'multiselect' ) )
 					paramData.type = 'select-multiple'
 				
-				else if( paramData.$valueElement.is( 'select' ) )
+				else if( paramData.$valueInput.is( 'select' ) )
 					paramData.type = 'select-one'
 				
 				else 
@@ -426,9 +666,9 @@ if ( ! Array.prototype.remove ) {
 			}
 			else {
 				if( paramData.type === 'checkbox' ){
-					//paramData.value = paramData.$valueElement.is( ':checked' )
+					//paramData.value = paramData.$valueInput.is( ':checked' )
 					paramData.value = function() {
-						return paramData.$valueElement.is( ':checked' )
+						return paramData.$valueInput.is( ':checked' )
 					}
 				}
 			}
@@ -511,10 +751,7 @@ if ( ! Array.prototype.remove ) {
 					_console.error( 'Unable to determine the input type for parameter ' + paramName )
 			}
 			else if( this.type === 'checkbox' ){
-				//paramData.value = paramData.$valueInput.is( ':checked' )
-				//paramData.value = function() {
-				//	return _param.$valueInput.is( ':checked' )
-				//}
+
 			}
 			else {
 				// Anything here?
@@ -696,12 +933,12 @@ if ( ! Array.prototype.remove ) {
 					return 
 				}
 				
-				thisParam = Utils.getJenkinsParam( paramName )
+				thisParam = new Utils.jenkinsParam( paramName )
 				
 				if( visible === false )
-					thisParam.hide()
+					thisParam.hideParam()
 				else
-					thisParam.show()
+					thisParam.showParam()
 				
 				return 
 			}
@@ -718,12 +955,12 @@ if ( ! Array.prototype.remove ) {
 					
 					_console.debug( '%s the jenkins parameter %s', verb, param)
 					
-					thisParam = Utils.getJenkinsParam( param )
+					thisParam = new Utils.jenkinsParam( param )
 				
 					if( visible === false )
-						thisParam.hide()
+						thisParam.hideParam()
 					else
-						thisParam.show()
+						thisParam.showParam()
 					
 				})
 				
@@ -736,6 +973,417 @@ if ( ! Array.prototype.remove ) {
 		}
 	}
 
+	var Deployments = {
+		/**
+		 * Sets the value of the Repository parameter based off of the value set in the Web_Application parameter.
+		 *
+		 * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+		 * @return	{void}
+		 */
+		setDeployRepo: function setDeployRepo( reqDetails ){
+			var	_console = new Utils.console( 'Deployments.setDeployRepo' ),
+					WebApplication_param = new Utils.jenkinsParam('Web_Application'),
+					Repository_param = new Utils.jenkinsParam('Repository'),
+					//$webappSel = $( "input[value='Web_Application']" ).next("select[name='value']" ),
+					//$repoSel = $( "input[value='Repository']" ).next("select[name='value']" ),
+					setRepo
+
+			// Whenever the Web_Application parameter is changed, execute the below logic to decide what the repo value should be,
+			// or clear it out, if the Web_Application was also cleared
+			WebApplication_param.$valueInput.change(function() {
+				if( ! WebApplication_param.getVal() ){
+					_console.debug( 'Webapp cleared - Clearing repo' )
+					setRepo= ''
+				}
+				else {
+					_console.debug( 'Webapp changed to: ', WebApplication_param.getVal() )
+
+					// Use Regular Expression to deduce what application is being deployed, based off of the prefix in the Web_Application value 
+					var webappName = WebApplication_param.getValue().match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/)
+
+					// If the regex match was successful, then set the repository value
+					if ( webappName ){
+						switch ( webappName[1] ) {
+							case 'api':
+								setRepo= 'API'
+								break
+							case 'static':
+								setRepo= 'Static'
+								break
+							case 'secure':
+								setRepo= 'WebApp'
+								break
+							case 'www':
+							default:
+								setRepo= 'www'
+								break	
+						}
+						_console.debug('Matched String: ' + webappName[1] + ' - Setting the repo to ' + setRepo)
+					}
+					
+					// If the regex match failed, then default to an empty repo value
+					else {
+						_console.debug('Nothing Matched - Defaulting to the Web repo')
+						setRepo= ''
+					}
+				}
+				
+				// Update the repository value
+				_console.debug( 'Updating repository value to: ' + setRepo )	
+				
+				Repository_param.$valueInput.val( setRepo ).change()
+			})
+		},
+		
+		/**
+		 * Hide/Show the parameters that will be used to configure the .env file, based on what server(s) are selected, 
+		 * and if the Update_Env_File parameter is checked.
+		 * 
+		 * This monitors the Update_Env_File checkbox parameter, when checked, it disables the DB settings fields, 
+		 * and enables when its checked.
+		 *
+		 * @param	{object}	pageDetails		Must be a Utils.pageDetails object
+		 * @return	{void}
+		 * @todo		This needs to work with Siloed servers, where theres no A and B sites
+		 */
+		manageEnvParams: function manageEnvParams( pageDetails ){
+			// Get the 'Update_Env_File' field
+			var	_console 					= new Utils.console( 'Deployments.manageEnvParams' ),
+					paramWebApp			= new Utils.jenkinsParam( 'Web_Application' ),
+					paramRepo				= new Utils.jenkinsParam( 'Repository' ),
+					paramUpdateEnvFile  = new Utils.jenkinsParam( 'Update_Env_File' ),
+					paramServer 			= new Utils.jenkinsParam( 'Server' ),
+					dbParams					= {},
+					serverVals
+			
+			// Set the visibility of the DB parameters on the initial page load
+			showAppropriateDbParams()
+			
+			setEnvParamVisibility()
+			
+			paramRepo.$valueInput.change(function(){
+				_console.debug( 'Repository parameter changed' )
+				showAppropriateDbParams()
+				//setEnvParamVisibility()
+			})
+			
+			// Whenever the Server parameter is changed, then toggle the visibility of the DB params, 
+			// to show only the appropriate parameters
+			paramServer.$valueInput.change( function(){
+				_console.debug( 'Server parameter changed' )
+				
+				showAppropriateDbParams()
+			})
+			
+			// Whenever Update_Env_File is toggled, set the display of the DB params
+			paramUpdateEnvFile.$valueInput.change(function() {	
+				showAppropriateDbParams()
+				
+				serverVals = paramServer.getValue()
+			})
+			
+			/**
+			 * Gets the alpha character ID for the sites of the servers selected in the Server parameter. This function simply 
+			 * iterates over any selected values values of the Server parameter, then uses regular expression to extract the 
+			 * Site ID from the hostname, and adds any selected value to an array to be returned (converting it to uppercase)
+			 * For example, if the Server web-prd-a01 is selected, this will return A, if web-prd-b01 is selected as well, an array
+			 * containing A and B will be returned
+			 *
+			 * @return	{null,array}		Array of uppercase single alpha characters if any site ID's are extracted, null if nothing selected
+			 */
+			function getSelectedSiteIds(){
+				var	_console = new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' )
+				_console.debug( 'Getting selected sites' )
+				
+				var 	selected = paramServer.getValue(),
+						result = [], match
+								
+				// If one or more Servers are selected, then parse the selected options
+				if( selected ){
+					$.each( selected, function( k, v ){
+						_console.debug( 'Matching for site character in selected site value', v )
+						
+						match = v.match( /^[a-zA-Z]+-[a-zA-Z]+-([a|b])[0-9]{2}$/ )
+						
+						_console.debug( 'Regex match result for %s:', v, match )
+						
+						if( match ){
+							_console.debug( 'Matched character %s', match[1] )
+							result.push( match[1].toUpperCase() )
+						}
+						else {
+							_console.debug( 'No match found' )
+						}
+					})
+				}
+				
+				_console.debug( result.length ? 'Returning selected site(s): ' + result.join(', ') : 'No selected sites found' )
+				
+				// Return false if none were selected
+				return result.length 
+					? result 
+					: null
+			}
+			
+			/**
+			 * Get all database host params, meaning anything that starts with App_DB_Host or Seed_DB_Host
+			 *
+			 * @return	{array}	An array of parameter names
+			 */
+			function getAllDbHostParams(){
+				var	_console = new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' ),
+						sites = [], thisName
+			
+				// Search for 
+				$( "input:hidden[value^=App_DB_Host], input:hidden[value^=Seed_DB_Host]" ).each( function( k, i ){
+					thisName = $( i ).val()
+					
+					_console.debug( 'Found the DB host parameter name: %s', thisName )
+					
+					sites.push( thisName )
+				})
+				
+				return sites
+			}
+			
+			/**
+			 * This function basically sets the visibility of the DB Host/User/Pass parameters, based on the value of 
+			 * the Server parameter, and the Update_Env_File param
+			 *
+			 * @return	{void}	This function just interacts with parameter input elements vicariously through 
+			 *								toggleDbHostVisibility and setCredParamsVisibility
+			 */
+			function showAppropriateDbParams(){
+				var	_console = new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' ),
+						selectedServerOptions = paramServer.getValue(),
+						// All DB Host params - used to keep track of which params need to be hidden after select ones are shown
+						allDbHostParams = getAllDbHostParams(),
+						repository = paramRepo.value(),
+						selectedSites = getSelectedSiteIds() || [],
+						toHide = allDbHostParams || [], 
+						toShow = [],  thisParam
+				
+				setEnvParamVisibility()
+				
+				// If no servers are selected, or the repo selected doesnt need them, hide the params
+				if ( (selectedServerOptions === null || selectedServerOptions.length === 0 ) || 
+					$.inArray( repository, settings.envDependentApps ) === -1 ){
+					
+					_console.debug( 'No servers are selected - hiding DB related params' )
+					
+					// Hide all DB Host params
+					Utils.setParamVisibility( allDbHostParams, false )
+					
+					// Hide the credential params
+					setCredParamsVisibility( false )
+					
+					return
+				}
+				
+				// If the Update Env File option is not selected, then hide the parameters
+				if( paramUpdateEnvFile.getValue() != true ){
+					_console.debug('Update_Env_File value is unchecked - hiding DB related params' )
+					
+					// Hide all DB Host params
+					Utils.setParamVisibility( allDbHostParams, false )
+					
+					// Hide the credential params
+					setCredParamsVisibility( false )
+					
+					return
+				}
+			
+				// If there are servers selected, but no sites were found - then this job may NOT be deploying 
+				// to site-based servers (meaning no A or B)
+				if( selectedSites.length === 0 ){
+					// If the App_DB_Host and Seed_DB_Host params are found, then show those and the credential params
+					if( Utils.doesParamExist( 'App_DB_Host' ) && Utils.doesParamExist( 'Seed_DB_Host' ) ){
+						
+						_console.debug( 'Found the parameters App_DB_Host and Seed_DB_Host - Using those as the only DB params' )
+						
+						// Show the (Seed|App)_DB_Host params, and remove them from the toHide array
+						$.each( [ 'Seed_DB_Host', 'App_DB_Host' ], function( k, p ){
+							thisParam = new Utils.jenkinsParam( p )
+							thisParam.showParam()
+							toHide.remove( p )
+						})
+						
+						// Hide any other DB Host params
+						Utils.setParamVisibility( toHide, false )
+						
+						// Show credentials
+						setCredParamsVisibility( true )
+					}
+					else {
+						_console.debug( 'Some server options were selected, but no site IDs were extracted, and the App_DB_Host and/or Seed_DB_Host params '
+							+'were not found. This may be due to the servers having improper hostnames, or the parameters in this job were named incorrectly' )
+					}
+				}
+				
+				// If servers ARE selected, and there were some Site IDs found in the hostnames, then show 
+				// the DB params for those Site IDs (if they exist)
+				else {
+					_console.debug( 'There were %s Site IDs found in the selected server hostnames: %s', selectedSites.length, selectedSites.join(', ') )
+					
+					// Iterate through the selected site IDs - Checking if theres an App_DB_Host and Seed_DB_Host for each one, and showing them if so.
+					selectedSites.each( function( site ){
+						
+						if( Utils.doesParamExist( 'App_DB_Host_' + site ) && Utils.doesParamExist( 'Seed_DB_Host_' + site ) ){
+							
+							_console.debug( 'Found the Application DB host and Seed DB host for site %s - Showing the parameters', site )
+							// Show the App DB host and Seed DB Host for this site
+							$.each([ 'App_DB_Host_' + site, 'Seed_DB_Host_' + site ], function( k, p ){
+								thisParam = new Utils.jenkinsParam( p )
+								thisParam.showParam()
+								toHide.remove( p )
+							})
+							
+							// Hide any other DB Host params
+							Utils.setParamVisibility( toHide, false )
+							
+							// Show credentials
+							setCredParamsVisibility( true )
+						}
+						
+						else {
+							_console.debug( 'Unable to find the Application DB host and/or the Seed DB host for site %s - Unable to show parameters', site )
+							
+							// Hide any other DB Host params
+							Utils.setParamVisibility( toHide, false )
+							
+							// Show credentials
+							setCredParamsVisibility( false )
+						}
+					})
+				}
+			}
+			
+			function setEnvParamVisibility(){
+				var	webappName = paramWebApp.getValue(),
+						webappProject = webappName.match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/),
+						repository = paramRepo.getValue()
+						
+				console.log('Deploying project in repo:', repository)
+					
+				// Check if the selected repository uses the .env file - if so, show the Update_Env_File param.
+				if( $.inArray( repository, settings.envDependentApps ) !== -1 ){
+					paramUpdateEnvFile.showParam()
+				}
+				
+				// If not, hide it
+				else {
+					paramUpdateEnvFile.hideParam()
+				}
+			}
+			
+			/**
+			 * Set the visibility of the credential parameters (username, pass, appkey) by setting the CSS 'display' 
+			 * value to 'none' for hiding them, or removing the 'style' attribute to make it visible again.
+			 *
+			 * @param	{boolean}	visible		Visibility of parameters
+			 * @return	{void}							This function just interacts with the CSS style of HTML elements
+			 */
+			function setCredParamsVisibility( visible ){
+				var	_console = new Utils.console( 'Deployments.manageEnvParams > setCredParamsVisibility' ),
+				// Store the params to toggle in here
+						credParams = {
+					DB_Username:  new Utils.jenkinsParam( 'DB_Username' ),
+					DB_Password: 	 new Utils.jenkinsParam( 'DB_Password' ),
+					Application_Key: new Utils.jenkinsParam( 'Application_Key' )
+				}
+				
+				// If were setting them to visible, then remove the style (which would have display: none)
+				if( visible === true )
+					$.each( credParams, function( name, param ){
+						_console.debug( 'Setting the visibility of the parameter %s to true', name )
+						param.showParam()
+					})
+				
+				// If were hiding them, then add the css style display: none
+				else 
+					$.each( credParams, function( name, param ){
+						_console.debug( 'Setting the visibility of the parameter %s to false', name )
+						param.hideParam()
+					})
+			}
+			
+			/**
+			 * Toggle the visibility of one or both of the DB host parameter field. If one site is provided in the sites param, then the 
+			 * other will be hidden. If this function is executed with any false value or an empty array, then both will be hidden and 
+			 * the DB_Username and DB_Password will also be hidden, until one or both of the Server values are selected. This 
+			 * function assumes that theres only two database servers, so this functionality is modeled around managing only two
+			 *
+			 * @param	{string,array}	sites		One or more sites. One site can be a string or array with 
+			 *														a single element, 1+ should be an array
+			 * @return	{void}							
+			 */
+			function toggleDbHostVisibility( sites ){
+				var	_console = new Utils.console( 'Deployments.manageEnvParams > toggleDbHostVisibility' ),
+						tmpSites = existingSiteIds
+				
+				if( typeof sites === 'string' ){
+					sites = [ sites ]
+				}
+				else if( typeof sites !== 'object' ){
+					_console.error( 'Function toggleDbHostVisibility expects to be handed an array or a string, not a %s', typeof sites )
+					return false
+				}
+				
+			
+				// Set the visibility of the sites provided to visible
+				if( sites ){
+					$.each( sites, function( k, site ){
+						setSiteDbHostParamVisibility( site, true )
+					})
+				}
+				
+				// Set the visibility of the other(s) to hidden
+				$.each([ 'A', 'B' ], function( k, site ){
+					if( $.inArray( site, sites ) === -1 )
+						setSiteDbHostParamVisibility( site, false )
+				})	
+			}
+			
+			/**
+			 * Set the visibility of specified DB host parameters to hidden (by setting CSS display:none). 
+			 * This sets the Seed and App host parameters by using the site ID (A or B)
+			 * 
+			 * @param	{string}		site			Site ID (A or B)
+			 * @param	{boolean}	visibility		Visibility to set (false is display:none; true display: block)
+			 * @return	{void}							This function just interacts with the CSS style of HTML elements
+			 */
+			function setSiteDbHostParamVisibility( site, visibility ){
+				var	_console = new Utils.console( 'Deployments.manageEnvParams > setSiteDbHostParamVisibility' )
+				if( ! site || typeof site !== 'string' ){
+					_console.error( 'Site value not provided or not a string' )
+					return false
+				}
+				
+				_console.debug( 'Setting App and Seed DB host param visibility for site %s to %s', site, visibility ? 'visible' : 'hidden' )
+				
+				if( visibility ){
+					dbParams[ site.toUpperCase() ].showParam()
+					dbParams[ site.toUpperCase() ].showParam()
+				}
+				else {
+					dbParams[ site.toUpperCase() ].hideParam()
+					dbParams[ site.toUpperCase() ].hideParam()
+				}
+			}
+			
+			function envAlertAndUncheck() {
+				var 	paramUpdateEnvFile  = new Utils.jenkinsParam( 'Update_Env_File' )
+				
+				alert( 'In order to update the .env file on any server, you must select a value in the Servers parameter field, then you can check the Update_Env_File option.' )
+				
+				paramUpdateEnvFile.$valueInput.prop( "checked", false );
+			}
+			
+			// Application Key parameter
+			var paramAppKey = new Utils.jenkinsParam( 'Application_Key' )
+		}
+	}
+	
 	var General = {
 		/**
 		 * Watch for any changes to any input parameters for a build, if anything gets changed, then show 
@@ -744,42 +1392,13 @@ if ( ! Array.prototype.remove ) {
 		confirmLeave: function( reqDetails ){
 
 		},
-
+	
+		buildParamDependencies: function( reqDetails ){
+				
+		},
+		
 		jobDetails: function(){
 			// Return job data such as an array of parameters, and...?
-		},
-
-		paramTest: function( reqDetails ){
-			var _console 		= new Utils.console( 'General.paramTest' ),
-				param_String 	= new Utils.jenkinsParam( 'String_Param' ),
-				param_Fake 		= new Utils.jenkinsParam( 'Fake_Param' ),
-				param_Password 	= new Utils.jenkinsParam( 'Password_Param' ),
-				param_Boolean 	= Utils.getJenkinsParam( 'Boolean_Param' ),
-				param_ShowPass 	= Utils.getJenkinsParam( 'Show_Password' ),
-				tmpVal
-
-			_console.log( 'String_Param Instanceof:', param_String instanceof Utils.jenkinsParam )
-
-			console.log( 'param_Fake', param_Fake )
-
-			param_Boolean.$valueElement.change( function(){
-				tmpVal = param_String.getValue()
-
-				if( tmpVal === 'foo' )
-					param_String.setValue( 'bar' )
-				else
-					_console.log( 'String_Param:', param_String.getValue() )
-			})
-
-			param_ShowPass.$valueElement.change( function(){
-				var showPassVal = param_ShowPass.value()
-				_console.log( 'Show_Password Value:',showPassVal )
-
-				if( showPassVal === true )
-					param_Password.showParam()
-				else
-					param_Password.hideParam()
-			})
 		},
 
 		/**
@@ -805,7 +1424,7 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}								This function just cancels a form submission at the most.
 		 */
 		requireBuildParams: function requireBuildParams( reqDetails ){
-			var	cnsl = new utils.console( 'General.requireBuildParams' ),
+			var	_console = new utils.console( 'General.requireBuildParams' ),
 					$paramForm = $( 'form[name="parameters"]' ),
 					$reqElements = $( 'required, span.required-param' ), 
 					reqParams = {}, 
@@ -829,14 +1448,14 @@ if ( ! Array.prototype.remove ) {
 					$reqElem = $( re ).closest('tbody').children('tr:first').children('td.setting-name')
 					
 					if( ! $reqElem.length ){
-						cnsl.warn( 'couldnt find a param' )
+						_console.warn( 'couldnt find a param' )
 					}
 					else {
 						paramName = $.trim( $reqElem.text() )
 						
-						cnsl.debug('Adding the parameter %s to the required parameters list',  paramName )
+						_console.debug('Adding the parameter %s to the required parameters list',  paramName )
 					
-						reqParams[ paramName ] = utils.getJenkinsParam( paramName )
+						reqParams[ paramName ] = new Utils.jenkinsParam( paramName )
 					}
 				})
 				
@@ -871,14 +1490,14 @@ if ( ! Array.prototype.remove ) {
 				
 				// If none were marked required, just quit
 				if( $.isEmptyObject( reqParams ) ){
-					cnsl.debug( 'Not requiring any parameters for this build - None were found' )
+					_console.debug( 'Not requiring any parameters for this build - None were found' )
 					return true
 				}
 			
 				$.each( reqParams, function( name, param ){
 					thisVal = param.value()
 					
-					cnsl.debug( 'The parameter "%s" has te value "%s"', name, param.value() )
+					_console.debug( 'The parameter "%s" has te value "%s"', name, param.value() )
 					
 					if( thisVal.length === 0 )
 						emptyParams.push( name )	
@@ -905,9 +1524,11 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}							This function just interacts with the CSS style of HTML elements
 		 */
 		clearPasswordParams: function clearPasswordParams( reqDetails ){
-			var $pwdInputs = $( 'input.setting-input:password' )
+			var 	_console = new Utils.console( 'General.clearPasswordParams' ),
+					$pwdInputs = $( 'input.setting-input:password' )
 
 			$pwdInputs.each(function( i, pi ) {
+				_console.debug( 'Clearing text from password input #', i )
 				$( pi ).val( '' )
 			})
 		},
@@ -921,7 +1542,7 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}
 		 */
 		setBuildPageDescription: function setBuildPageDescription( reqDetails ){
-			var	cnsl = new utils.console( 'General.setBuildPageDescription' ),
+			var	_console = new utils.console( 'General.setBuildPageDescription' ),
 					$buildDesc = $( 'builddesc, builddescription, build-desc, build-description' ),
 					descHtml, thisDesc
 						
@@ -930,10 +1551,10 @@ if ( ! Array.prototype.remove ) {
 			
 			// If theres just one description tag, then keep it simple
 			if( $buildDesc.length === 1 ){
-				cnsl.debug( 'Only one build desc tag' )
+				_console.debug( 'Only one build desc tag' )
 				thisDesc = $.trim( $buildDesc.html() )
 				
-				cnsl.debug( 'Adding build desc text "' + thisDesc + '" to the listItems array' )
+				_console.debug( 'Adding build desc text "' + thisDesc + '" to the listItems array' )
 				
 				if( thisDesc == '' )
 					return
@@ -943,7 +1564,7 @@ if ( ! Array.prototype.remove ) {
 			
 			// If theres more than one, then loop over them to create an unordered list
 			else {
-				cnsl.debug( $buildDesc.lengt + ' build desc tags FOUND' )
+				_console.debug( $buildDesc.lengt + ' build desc tags FOUND' )
 				
 				var listItems = []
 				
@@ -951,7 +1572,7 @@ if ( ! Array.prototype.remove ) {
 				$.each( $buildDesc, function( k, v ){
 					thisDesc = $.trim( $( v ).html() )
 					
-					cnsl.debug( 'Adding build desc text "' + thisDesc + '" to the listItems array' )
+					_console.debug( 'Adding build desc text "' + thisDesc + '" to the listItems array' )
 					
 					if( thisDesc != '' )
 						listItems.push( {
@@ -981,7 +1602,7 @@ if ( ! Array.prototype.remove ) {
 				}
 			}
 			
-			cnsl.debug( 'Setting the description content to:', descHtml )
+			_console.debug( 'Setting the description content to:', descHtml )
 			
 			$( '<div class="additional-job-details">' + descHtml + '</div>' ).insertAfter( 'div#main-panel > h1' )
 		}
