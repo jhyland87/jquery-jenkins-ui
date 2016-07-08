@@ -43,7 +43,6 @@
  * TODO:
  *		- Deployments.manageEnvParams() needs to be able to work with silo'd environments, like preprod, where theres no a/b
  *		- Fix the getReqDetails() function, the job segments, name and env are incorrect for pre-prod
- *	    - Move the pageDetails.action to pageDetails.job.action, and possibly create a separate pageDetails.action for a general (non-job based) action
  */
  
  // Add a function to the Array prototype for removing an element (or elements) from the array
@@ -54,31 +53,45 @@ if ( ! Array.prototype.remove ) {
 	}
 }
 
-( function( $ ){
+(function( $ ){
 	/**
 	 * Settings
 	 */
 	var settings = {
+		// START Custom user settings -------------------------------------------------------------
 		// Environment Folders - Add the names of the folders located in the top level of Jenkins,
 		// that should be considered "environments"
 		envFolders: [
 			'Production', 'Development', 'Staging', 'Pre-Prod'
 		],
-		// Jenkins actions that should be treated the same as the 'build' action
-		buildActions: [
-			'build', 'rebuild'
-		],
 		// List of repositories for projects that do utilize the .env file
 		envDependentApps: [ 
 			'API','WebApp' 
 		],
+		// Enable/disable debugging - This is overridden by setting the debug value in the request params
+		debug: false,
+		// END Custom user settings ---------------------------------------------------------------
+
+		/**
+		 * Settings below this line are used by the Jenkins jQuery framework, and should only be 
+		 * modified if you are fully aware of what will be
+		 */
         // Action verbs - This needs to be the exact string to match on the end of the request path
         actionVerbs: [
             'build', 'configure', 'ws', 'rebuild',
             'changes', 'move', 'jobConfigHistory'
         ],
-		// Enable/disable debugging - This is overridden by setting the debug value in the request params
-		debug: false
+		// Jenkins actions that should be treated the same as the 'build' action
+		buildActions: [
+			'build', 'rebuild'
+		],
+		// 
+        jenkinsParamTypes: {
+        	file: 'file-upload',
+        	tag: 'subversion',
+        	runId: 'run',
+        	credentialType: 'credentials'
+        }
 	}
 	
 	$( document ).ready(function() {
@@ -109,10 +122,10 @@ if ( ! Array.prototype.remove ) {
 
             this.pageDetails = pageDetails
 
-			_console.debug( 'Request Details: ', pageDetails )
+			_console.debug2( 'Request Details: ', pageDetails )
 			
 			$.each( controller.jenkinsFunctions, function( name, func ){
-				_console.debug('Executing ' + name)
+				_console.debug2('Executing ' + name)
 				func( pageDetails )
 			})
 		},
@@ -124,62 +137,61 @@ if ( ! Array.prototype.remove ) {
 			/*
 			// Add some cool style stuff to the build pages
 			styleViajQuery: function( pageDetails ){
-				if( pageDetails.action === 'build' )
+				if( pageDetails.job.isBuild === true )
 					General.styleViajQuery( pageDetails )
 			},
 			
 			// Set Build Description for any builds
 			setBuildDescription: function( pageDetails ){
-				if( pageDetails.action === 'build' )
+				if( pageDetails.job.isBuild === true )
 					General.setBuildPageDescription( pageDetails )
 			},
 			
 			// Sets the Repository parameter based on the Web_Application value - Should excecute for any deployment builds 
 			webappDeploySetRepo: function( pageDetails ){	
 				// Only execute the setDeployRepo if the job is a Deploy_WebApp job, and we're on the build form
-				if( pageDetails.job.name === 'Deploy_WebApp' && pageDetails.action === 'build' )
+				if( pageDetails.job.isBuild === true )
 					Deployments.setDeployRepo( pageDetails )
 			},
 			
 			// Change the status of the env param fields based on the Update_Env_File checkbox value
 			webappConfigureEnvParams: function( pageDetails ){
 				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
-				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1 && pageDetails.action === 'build' )
+				if( pageDetails.job.isBuild === true )
 					Deployments.manageEnvParams( pageDetails )
 			},
 			
 			// Clear the password parameters of the build jobs, which can be auto populated by the browser, which is misleading
 			clearPasswordParams: function ( pageDetails ){
 				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
-				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1 && pageDetails.action === 'build' )
+				if( pageDetails.job.isBuild === true )
 					General.clearPasswordParams( pageDetails )
 			},
 			
 			// Enforce specific parameters to be populated before the build form can be submitted
 			requireBuildParams: function( pageDetails ){
 				return // Disabled for now
-				if( pageDetails.action === 'build' )
+				if( pageDetails.job.isBuild === true )
 					General.requireBuildParams( pageDetails )
 			}
 			*/
 			// Add some cool style stuff to the build pages
 			styleViajQuery: function( pageDetails ){
-				if( $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+				if( pageDetails.job.isBuild === true )
 					General.styleViajQuery( pageDetails )
 			},
 			
 			// Sets the Repository parameter based on the Web_Application value - Should excecute for any deployment builds 
 			webappDeploySetRepo: function( pageDetails ){	
 				// Only execute the setDeployRepo if the job is a Deploy_WebApp job, and we're on the build form
-				if( pageDetails.job.name === 'Deploy_WebApp' && $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+				if( pageDetails.job.isBuild === true && pageDetails.job.name === 'Deploy_WebApp' )
 					Deployments.setDeployRepo( pageDetails )
 			},
 			
 			// Change the status of the env param fields based on the Update_Env_File checkbox value
 			webappConfigureEnvParams: function( pageDetails ){
 				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
-				if( $.inArray( pageDetails.job.name, runOnJobs ) !== -1
-                        && $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+				if( pageDetails.job.isBuild === true && $.inArray( pageDetails.job.name, runOnJobs ) !== -1 )
 					Deployments.manageEnvParams( pageDetails )
 			},
 
@@ -190,10 +202,10 @@ if ( ! Array.prototype.remove ) {
 				console.log('Utils.pageDetails username: %s', pageDetails.username )
 	
 				// Clear the password parameter values on any build/rebuild actions
-				if( $.inArray( pageDetails.action, settings.buildActions ) !== -1 )
+				if( pageDetails.job.isBuild === true )
 					General.clearPasswordParams( pageDetails )
 				else 
-					console.log( 'The action %s is not a build action', pageDetails.action )
+					console.log( 'The action %s is not a build action', pageDetails.job.action )
 			},
 
             homeTests: function( pageDetails ){
@@ -207,23 +219,23 @@ if ( ! Array.prototype.remove ) {
 	 */
     var Hooks = {
         /**
-         * Hooks.reqDetails can be anything that updates the request details object thats given to the functions
+         * Hooks.pageDetails can be anything that updates the request details object thats given to the functions
          * that get executed by the controller
          */
-        reqDetails: {
+        pageDetails: {
             /**
              * Determine if the
              */
-            setEnvironment: function( reqDetails ){
+            setEnvironment: function( pageDetails ){
 
                 // See if this is in one of the environment folders, if so, set the env
-                if( $.inArray( reqDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
-                    reqDetails.env = reqDetails.job.segments[ 0 ]
+                if( $.inArray( pageDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
+                    pageDetails.env = pageDetails.job.segments[ 0 ]
 
                 /*var newStuff = {}
                  // See if this is in one of the environment folders, if so, set the env
-                 if( $.inArray( reqDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
-                 newStuff.env = reqDetails.job.segments[ 0 ]
+                 if( $.inArray( pageDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
+                 newStuff.env = pageDetails.job.segments[ 0 ]
                  else
                  newStuff.env = 'IDK'
 
@@ -234,13 +246,13 @@ if ( ! Array.prototype.remove ) {
             /**
              * Just an example function hook that adds some properties to the Utils.pageDetails object
              */
-            addProperties: function( reqDetailsObj ){
-                if( ! ( reqDetailsObj instanceof Utils.pageDetails ) ){
-                    console.warn( 'Hooks.reqDetails.modifyObj was was given something that was NOT an instance of Utils.pageDetails' )
+            addProperties: function( pageDetailsObj ){
+                if( ! ( pageDetailsObj instanceof Utils.pageDetails ) ){
+                    console.warn( 'Hooks.pageDetails.modifyObj was was given something that was NOT an instance of Utils.pageDetails' )
                     return false
                 }
 
-                $.extend( reqDetailsObj, {
+                $.extend( pageDetailsObj, {
                     location: {
                         pathname: window.location.pathname
                     },
@@ -249,7 +261,7 @@ if ( ! Array.prototype.remove ) {
                     }
                 } )
 
-                return reqDetailsObj
+                return pageDetailsObj
             }
         }
     }
@@ -270,31 +282,23 @@ if ( ! Array.prototype.remove ) {
          * @return	{function}	obj.error		Function that can be used just like console.error()
          */
         console: function ( prefix ) {
+        	var thisObj = this
             // Set the prefix for any console output via the internal debug/warn/error/log methods
-            this._prefix = prefix || Utils.getCallerFuncName() || null
-
-            // Function to determine if debug is enabled or not (by looking at the URL)
-            this._debugEnabled = function(){
-                return Utils.getUrlParam( 'debug' ) == 'true' || Utils.getUrlParam( 'debug' ) == '1' || window.debug == true || window.debug == 1
-            }
+            thisObj._prefix = prefix || Utils.getCallerFuncName() || null
 
             // Wrapper to console.log()
-            this.log = function( str ){
+            thisObj.log = function( str ){
                 var args = arguments
                 if( args ){
-                    if( this._prefix ) args[0] = '[' + this._prefix + '] ' + args[0]
+                    if( thisObj._prefix ) args[0] = '[' + thisObj._prefix + '] ' + args[0]
                     console.log.apply( console, arguments )
                 }
             }
 
-            // Wrapper to console.debug()
-            this.debug = function( str ){
-                var args = arguments
-                if( this._debugEnabled() === true && args ){
-                    if( this._prefix ) args[0] = '[' + this._prefix + '] ' + args[0]
-                    console.debug.apply( console, arguments )
-                }
-            }
+            thisObj.debug3 = Utils.debugger( 3, prefix )
+            thisObj.debug2 = Utils.debugger( 2, prefix )
+            thisObj.debug1 = Utils.debugger( 1, prefix )
+            thisObj.debug  = thisObj.debug1
 
             // Wrapper to console.warn()
             this.warn = function( str ){
@@ -313,6 +317,37 @@ if ( ! Array.prototype.remove ) {
                     console.error.apply( console, arguments )
                 }
             }
+        },
+
+        /**
+         * Console debugger object
+         */
+        debugger: function( level, prefix ){
+        	// Function to determine if debug is enabled or not (by looking at the URL)
+            function _debugLevel(){
+            	var debugSetting = Utils.getUrlParam( 'debug' ) || settings.debug
+
+            	if( typeof debugSetting === 'number' || parseInt( debugSetting ) == debugSetting ){
+            		return parseInt( debugSetting )
+            	}
+
+            	else if( debugSetting === true || debugSetting === 'true' ) {
+            		return 1
+            	} 
+
+            	else {
+                	return 0
+                }
+            }
+
+        	return function( str ){
+        		var args = arguments
+                if( _debugLevel() >= level && args ){
+                    if( prefix ) args[ 0 ] = '(' + level + ')[' + prefix + '] ' + args[ 0 ]
+                    
+                    console.debug.apply( console, arguments )
+                }
+        	}
         },
 
         /**
@@ -343,15 +378,15 @@ if ( ! Array.prototype.remove ) {
          * @return	{string}					Value of parameter in URL
          */
         getUrlParam: function getUrlParam( sParam ) {
-            var sPageURL = decodeURIComponent(window.location.search.substring(1)),
-                sURLVariables = sPageURL.split('&'),
+            var sPageURL 	  = decodeURIComponent(window.location.search.substring(1)),
+                sURLVariables = sPageURL.split( '&' ),
                 sParameterName
 
             for ( var i = 0; i < sURLVariables.length; i++ ) {
-                sParameterName = sURLVariables[i].split('=')
+                sParameterName = sURLVariables[ i ].split( '=' )
 
-                if (sParameterName[0] === sParam)
-                    return sParameterName[1] === undefined ? true : sParameterName[1]
+                if ( sParameterName[ 0 ] === sParam )
+                    return sParameterName[ 1 ] === undefined ? true : sParameterName[ 1 ]
             }
         },
 
@@ -363,7 +398,7 @@ if ( ! Array.prototype.remove ) {
          */
         getElementAttrs: function getElementAttrs( elem ){
             if( elem instanceof jQuery )
-                elem = elem[0]
+                elem = elem[ 0 ]
 
             var attrs = []
 
@@ -380,26 +415,20 @@ if ( ! Array.prototype.remove ) {
          *
          * @todo 	Add a method that can enable/disable the Build button on the build form.
          */
-        pageDetails: function(  ){
-            var thisClass = this,
-                reqPath = window.location.pathname,
-                _console = new Utils.console( 'Utils.pageDetails' ),
+        pageDetails: function pageDetails(){
+            var thisClass 	  = this,
+                _console 	  = new Utils.console( 'Utils.pageDetails' ),
                 // Try to get the users login from the profile link
-                $accountLink = $( 'div.login > span > a' ),
-                // Get the job path and job segments from the URL
-                jobMatch = reqPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
-                segs
+                $accountLink  = $( 'div.login > span > a' )
+
+
+            thisClass.requestPath = window.location.pathname
 
             thisClass.username = undefined
 
             thisClass.job = {
-                isBuild: false,
-                name: null,
-                path: '',
-                segments: []
+            	isBuild: false
             }
-
-            thisClass.action = undefined
 
             if( $accountLink ){
                 if( $accountLink.attr('href') ){
@@ -410,71 +439,48 @@ if ( ! Array.prototype.remove ) {
                         thisClass.username = linkHrefMatch[1]
                     }
                     else {
-                        _console.debug( 'Href not matched' )
+                        _console.debug2( 'Href not matched' )
                     }
                 }
                 else {
-                    _console.debug( 'No href in profile link' )
+                    _console.debug2( 'No href in profile link' )
                 }
             }
             else {
-                _console.debug( 'No account link found' )
+                _console.debug2( 'No account link found' )
             }
 
-            // Loop through the job matches and only get the part thats the job name
-            // TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
-            if( jobMatch ){
-                $.each( jobMatch, function( k, j ){
-                    j = j.replace(/^\//g, '')
-                    segs = j.split( '/' )
-
-                    thisClass.job.path = thisClass.job.path + '/' + segs[1]
-                    thisClass.job.segments.push( segs[1] )
-                })
-            }
-
-            // Set the job name
-            thisClass.job.name = thisClass.job.segments.slice(-1)[0]
-
-            // Get the action being performed
-            var actionVerbRegex = new RegExp( '/(' + settings.actionVerbs.join( '|' ) + ')/?$' ),
-                actionMatch = actionVerbRegex.exec( reqPath )
-
-            if( actionVerbRegex !== null ) {
-                thisClass.action = actionMatch[ 1 ]
-
-                if( $.inArray( thisClass.action, settings.buildActions ) !== -1 ) 
-                    Utils.paramFormDetails( thisClass )
-            }
+            // Execute Utils.getJobDetails() to check if this page is a job URL
+           	Utils.getJobDetails( thisClass )
 
             // If there are any request details function hooks, execute them
-            if( typeof Hooks.reqDetails === 'object' ){
-                var tmpReqDetails
+            if( typeof Hooks.pageDetails === 'object' ){
+                var tmpPageDetails
 
-                $.each( Hooks.reqDetails, function( name, hook ){
-                    _console.debug( 'Processing pageDetails function hook "%s" (typeof: %s)', name, typeof hook )
+                $.each( Hooks.pageDetails, function( name, hook ){
+                    _console.debug2( 'Processing pageDetails function hook "%s" (typeof: %s)', name, typeof hook )
 
                     // The hooks must be functions! Anything else gets ignored
                     if( typeof hook === 'function' ){
-                        _console.debug( 'Executing reqDetails hook function %s', name )
+                        _console.debug2( 'Executing pageDetails hook function %s', name )
 
                         try {
-                            tmpReqDetails = hook( thisClass )
+                            tmpPageDetails = hook( thisClass )
 
-                            if( tmpReqDetails instanceof Utils.pageDetails ){
+                            if( tmpPageDetails instanceof Utils.pageDetails ){
                                 _console.debug('Request details hook %s returned a modified Utils.pageDetails object - using the modified returned object', name )
-                                //reqDetails = tmpReqDetails
+                                //pageDetails = tmpPageDetails
                             }
-                            else if( typeof tmpReqDetails === 'object' ){
+                            else if( typeof tmpPageDetails === 'object' ){
                                 _console.debug( 'Request details hook %s returned an object, adding each object item to the Utils.pageDetails prototype', name )
 
-                                $.each( tmpReqDetails, function( n, v ){
+                                $.each( tmpPageDetails, function( n, v ){
                                     Utils.pageDetails.prototype[ n ] = v
                                     _console.debug( 'Created prototype item Utils.pageDetails.prototype.%s from hook %s (typeof = %s)', n, n, typeof v)
                                 })
                             }
                             else {
-                                _console.warn( 'The reqDetails hook %s did not return an object or an instance of Utils.pageDetails, it returned typeof: %s', name, typeof tmpReqDetails)
+                                _console.warn( 'The pageDetails hook %s did not return an object or an instance of Utils.pageDetails, it returned typeof: %s', name, typeof tmpPageDetails)
                             }
                         }
                         catch( err ){
@@ -488,8 +494,77 @@ if ( ! Array.prototype.remove ) {
                     }
                 })
             }
-            else if( Hooks.reqDetails !== undefined ) {
-                _console.warn( 'Invalid type found for Hooks.reqDetails - Expecting an object, found typeof: %s', typeof Hooks.reqDetails )
+            else if( Hooks.pageDetails !== undefined ) {
+                _console.warn( 'Invalid type found for Hooks.pageDetails - Expecting an object, found typeof: %s', typeof Hooks.pageDetails )
+            }
+        },
+
+        getJobDetails: function( pageDetails ){
+            var _console = new Utils.console( 'Utils.getJobDetails' ),
+                // Get the job path and job segments from the URL
+                jobMatch = pageDetails.requestPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
+                jobPathSegments
+
+
+             // Loop through the job matches and only get the part thats the job name
+            // TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
+            if( ! jobMatch ){
+            	_console.debug( 'Regex match against %s did not yield a job name', pageDetails.requestPath )
+            	return 
+            }
+            
+
+            _console.debug( 'Regex match against %s yielded a job name, updating the pageDetails.job object', pageDetails.requestPath )
+
+            pageDetails.job = {
+                isBuild: false,
+                name: null,
+                path: '',
+                segments: []
+            }
+
+            $.each( jobMatch, function( k, j ){
+            	_console.debug( 'Processing regex match #%s:', k, j )
+                //j = j.replace(/^\//g, '')
+                jobPathSegments = j.replace( /^\//g, '' ).split( '/' )
+
+                pageDetails.job.path = pageDetails.job.path + '/' + jobPathSegments[ 1 ]
+                pageDetails.job.segments.push( jobPathSegments[ 1 ] )
+            })
+
+            // Set the job name
+            pageDetails.job.name = pageDetails.job.segments.slice( -1 )[ 0 ]
+
+            // Get the action being performed
+            var actionVerbRegex = new RegExp( '/(' + settings.actionVerbs.join( '|' ) + ')/?$' ),
+                actionMatch = actionVerbRegex.exec( pageDetails.requestPath )
+
+            if( actionVerbRegex === null ) {
+            	_console.debug( 'Regex match for a job action against "%s" yielded no matches', pageDetails.requestPath )
+
+            	return
+            } 
+
+            _console.debug( 'Regex match for a job action against "%s" yielded the array: %s', pageDetails.requestPath, actionMatch.join(', ') )
+
+            if( $.inArray( actionMatch[ 1 ], settings.actionVerbs ) === -1 ){
+            	_console.warn( 'The job action verb found via RegExp match was %s, which was not found in the settings.actionVerbs array - How did that happen?.. Action Verbs: %s', 
+            		actionMatch[ 1 ], settings.actionVerbs.join(', ') )
+            	return
+            }
+
+            pageDetails.job.action = actionMatch[ 1 ]
+
+            _console.debug( 'Found the job action %s', pageDetails.job.action )
+
+            // Check if the action verb found is in the settings.buildActions array, if so, set pageDetails.job.isBuild 
+            // to true and execute Utils.getParamFormDetails()
+            if( $.inArray( pageDetails.job.action, settings.buildActions ) !== -1 ){
+                _console.debug( 'Found the job action %s, which is considered a "Build Action", executing Utils.getParamFormDetails()', pageDetails.job.action )
+
+                pageDetails.job.isBuild = true
+
+                Utils.getParamFormDetails( pageDetails )
             }
         },
 
@@ -501,23 +576,39 @@ if ( ! Array.prototype.remove ) {
          * @var     pageDetails.job.parameters[ parameter_name ].name
          * @var     pageDetails.job.parameters[ parameter_name ].type
          */
-        paramFormDetails: function( pageDetails ){
-            var _console     = new Utils.console( 'Utils.paramFormDetails' ),
-                $paramInputs = $( 'div[name="parameter"] > input[name="name"]' ),
-                $paramTable  = $( 'table.parameters' ),
-                returnObj    = {},
-                $paramElements = {
-                    name: null,
+        getParamFormDetails: function( pageDetails ){
+            var _console     		= new Utils.console( 'Utils.getParamFormDetails' ),
+            	jenkinsParamNames 	= Object.keys( settings.jenkinsParamTypes )
+
+			// Most of the parameter value inputs just have the name as 'value', so add that to the selector array
+        	jenkinsParamNames.push( 'value' )
+
+            var $paramInputs 		= $( 'div[name="parameter"] > input[name="name"]' ),
+                $paramTable  		= $( 'table.parameters' ),
+                paramSelector 		= '[name="' + jenkinsParamNames.join( '"], [name="' ) + '"]',
+                returnObj    		= {},
+                $paramElements 		= {
+                    name : null,
                     value: null
                 },
-                $paramValueElem,
-                $paramNameElem
+                //paramInputTypeStatus,
+                paramName,
+                paramValType,
+                paramValInputName
 
+
+			_console.debug( 'Jenkins parameter value input selector: %s', paramSelector )
+
+        	//paramSelector = '[name="' + jenkinsParamNames.join( '"], [name="' ) + '"]',
+
+            // Check that theres a table with the class 'parameters'
             if( ! $paramTable.length ){
                 _console.debug( 'No parameters table found, not polling parameter data' )
                 return
             }
 
+            // Then check that there are some inputs found (though there wouldnt ever be a table.parameters 
+            // element without inputs... but just do it)
             if( ! $paramInputs.length ){
                 _console.debug( 'No parameter input elements found, not polling parameter data' )
                 return
@@ -526,16 +617,83 @@ if ( ! Array.prototype.remove ) {
             pageDetails.job.parameters = {}
 
             $paramInputs.each( function( i, paramNameInput ){
-                $paramElements.name = $( paramNameInput )
-                $paramElements.value = $paramElements.name.next( '[name="value"]' )
+            	//paramInputTypeStatus = null
+                $paramElements.name  = $( paramNameInput )
+            	paramName 			 = $paramElements.name.val()
+                $paramElements.value = $paramElements.name.next( paramSelector )
 
-                $paramValueElem = $paramElements.name.next( '[name="value"]' )
-                
-                _console.debug( 'Loaded the build parameter %s into the Utils.pageDetails.job.parameters object', pageDetails.job.parameters)
+                if( ! $paramElements.value.length ){
+                	_console.error( 'There was an error finding the value input element for the parameter %s - Nothing was found using the CSS ' 
+                		+ 'selector %s. Make sure the input name is in the jenkinsParamNames array', paramName, paramSelector )
+                	return
+                }
+
+            	paramValInputName = $paramElements.value.prop( 'name' )
+
+                // Parameter input type
+            	paramValType = $paramElements.value.prop( 'type' ) || undefined
+
+            	// Prioritize the jenkinsParamNames setting values first. If the 'name' of the parameter value input 
+            	// is in the jenkinsParamNames object, then the type will be the value of that object item
+	            if( jenkinsParamNames[ paramValInputName ] !== undefined ){
+	            	//paramInputTypeStatus = 'param-name-settings'
+	            	
+	            	paramValType = jenkinsParamNames[ paramValInputName ]
+
+	            	_console.debug( 'Setting the parameter %s type to %s', paramName, paramValType )
+	            }
+
+	            // If there was no 'type' property of the param value element, then try to get the type manually
+	            else if( ! paramValType ){
+	            	if( $paramElements.value.is( 'multiselect' ) ){
+	            		//paramInputTypeStatus = 'is-multiselect'
+
+	                    paramValType = 'select-multiple'
+
+	                }
+	                else if( $paramElements.value.is( 'select' ) ) {
+	            		//paramInputTypeStatus = 'is-select'
+
+	                    paramValType = 'select-one'
+
+	                }
+	                else {
+	            		//paramInputTypeStatus = 'fail-no-type-prop'
+
+	                    _console.error( 'Unable to determine the input type for parameter %s', paramName )
+	                }
+	            }
+
+	            // If there was a 'type' property found, then use that
+	            else if( paramValType ){
+	            	//paramInputTypeStatus = 'use-type-prop'
+
+	            	_console.debug( 'The parameter %s had the "type" property set to %s, using that as the param input type', paramName, paramValType )
+	            } 
+
+	            // When everything else fails - throw a fit
+	            else {
+	            	//paramInputTypeStatus = 'fail-all'
+	            	var failReasons = []
+
+	            	if( jenkinsParamNames[ paramValInputName ] === undefined )
+	            		failReasons.push( 'The input element name "' + paramValInputName + '" was not found in the jenkinsParamNames object' )
+	            	
+	            	if( $paramElements.value.prop( 'type' ) === undefined )
+	            		failReasons.push( 'No "type" property found on value input element' )
+
+	            	_console.error( 'Unable to determine the input value type for parameter %s - ' 
+	            		+ ( ! failReasons.length ? 'Unknown reasons' : failReasons.join('; ') ), paramName)
+
+	            	// Skip to next iteration
+	            	return true
+	            }
+	          
+                _console.debug( 'Loaded the build parameter %s into the Utils.pageDetails.job.parameters object', paramName )
 
                 pageDetails.job.parameters[ $paramElements.name.val() ] = {
-                    name: $paramElements.name.val(),
-                    type: $paramElements.value.prop( 'type' )
+                    name: paramName,
+                    type: paramValType
                 }
             })
         },
@@ -839,10 +997,10 @@ if ( ! Array.prototype.remove ) {
         /**
          * Sets the value of the Repository parameter based off of the value set in the Web_Application parameter.
          *
-         * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+         * @param	{object}	pageDetails		Result from utils.getReqDetails( httpPath )
          * @return	{void}
          */
-        setDeployRepo: function setDeployRepo( reqDetails ){
+        setDeployRepo: function setDeployRepo( pageDetails ){
             var	_console = new Utils.console( 'Deployments.setDeployRepo' ),
                    WebApplication_param = new Utils.jenkinsParam('Web_Application'),
                    Repository_param = new Utils.jenkinsParam('Repository'),
@@ -1249,10 +1407,10 @@ if ( ! Array.prototype.remove ) {
     }
 
     var Home_Tests = {
-        helloWorld: function( reqDetails ){
+        helloWorld: function( pageDetails ){
             var _console = new Utils.console( 'Home_Tests.helloWorld' )
 
-            _console.log( 'Action: %s', reqDetails.action )
+            _console.log( 'Action: %s', pageDetails.job.action )
         }
     }
 
@@ -1261,11 +1419,11 @@ if ( ! Array.prototype.remove ) {
          * Watch for any changes to any input parameters for a build, if anything gets changed, then show
          * a confirmation when the viewer tries to leave the page without submitting the build
          */
-        confirmLeave: function( reqDetails, onChange ){
+        confirmLeave: function( pageDetails, onChange ){
 
         },
 
-        buildParamDependencies: function( reqDetails ){
+        buildParamDependencies: function( pageDetails ){
 
         },
 
@@ -1276,10 +1434,10 @@ if ( ! Array.prototype.remove ) {
         /**
          * Apply any dynamic style attributes that are easier to accomplish in Jenkins via jQuery rather than CSS
          *
-         * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+         * @param	{object}	pageDetails		Result from utils.getReqDetails( httpPath )
          * @return	{void}								This function just cancels a form submission at the most.
          */
-        styleViajQuery: function styleViajQuery( reqDetails ){
+        styleViajQuery: function styleViajQuery( pageDetails ){
             $('required').replaceWith(
                 $('<span/>', {
                     class: 'required-param',
@@ -1292,10 +1450,10 @@ if ( ! Array.prototype.remove ) {
          * Looks for any parameters that have a <required/> element in the description, and cancels the build
          * submission if any of said parameters are not populated.
          *
-         * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+         * @param	{object}	pageDetails		Result from utils.getReqDetails( httpPath )
          * @return	{void}								This function just cancels a form submission at the most.
          */
-        requireBuildParams: function requireBuildParams( reqDetails ){
+        requireBuildParams: function requireBuildParams( pageDetails ){
             var	_console 			= new utils.console( 'General.requireBuildParams' ),
                    $paramForm 	= $( 'form[name="parameters"]' ),
                    $reqElements 	= $( 'required, span.required-param' ),
@@ -1390,10 +1548,10 @@ if ( ! Array.prototype.remove ) {
          * Function to get executed on the build jobs which will clear the value of the password parameters.
          * Those params can sometimes get auto-populated via the browser, which can cause confusion.
          *
-         * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+         * @param	{object}	pageDetails		Result from utils.getReqDetails( httpPath )
          * @return	{void}							This function just interacts with the CSS style of HTML elements
          */
-        clearPasswordParams: function clearPasswordParams( reqDetails ){
+        clearPasswordParams: function clearPasswordParams( pageDetails ){
             var 	_console 		= new Utils.console( 'General.clearPasswordParams' ),
                    $pwdInputs 	= $( 'input.setting-input:password' )
 
@@ -1408,10 +1566,10 @@ if ( ! Array.prototype.remove ) {
          * (or other names listed below), and using the HTML of said elements as the HTML of a newly created div
          * that will be inserted below the jobs <h1> title. This gets executed for the 'build' action of every job.
          *
-         * @param	{object}	reqDetails		Result from utils.getReqDetails( httpPath )
+         * @param	{object}	pageDetails		Result from utils.getReqDetails( httpPath )
          * @return	{void}
          */
-        setBuildPageDescription: function setBuildPageDescription( reqDetails ){
+        setBuildPageDescription: function setBuildPageDescription( pageDetails ){
             var	_console 		= new utils.console( 'General.setBuildPageDescription' ),
                    $buildDesc 	= $( 'builddesc, builddescription, build-desc, build-description' ),
                    descHtml,
