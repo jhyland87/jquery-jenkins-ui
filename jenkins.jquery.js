@@ -208,8 +208,8 @@ if ( ! Array.prototype.remove ) {
 			setEnvironment: function( reqDetails ){
 				
 				// See if this is in one of the environment folders, if so, set the env
-				if( $.inArray( reqDetails.job.segments[0], settings.envFolders ) !== -1 )
-					reqDetails.env = reqDetails.job.segments[0]
+				if( $.inArray( reqDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
+					reqDetails.env = reqDetails.job.segments[ 0 ]
 			
 				/*var newStuff = {}
 				// See if this is in one of the environment folders, if so, set the env
@@ -244,7 +244,6 @@ if ( ! Array.prototype.remove ) {
 			}
 		}
 	}
-
 
 	/**
 	 * Extra utilities to make life easier 
@@ -482,202 +481,7 @@ if ( ! Array.prototype.remove ) {
 				_console.warn( 'Invalid type found for Hooks.reqDetails - Expecting an object, found typeof: %s', typeof Hooks.reqDetails )
 			}
 		},
-		
-		/**
-		 * Compile a detailed list of info about the request, such as the job, the environment, the action, and the username 
-		 * of the viewer (if set). Most of this is retrieved by parsing the URL. 
-		 *
-		 * @param	{string}	reqPath							URL to parse, should use the value of window.location.pathname
-		 * @return	{string}	obj.username				Username of whoevers viewing the pageX
-		 * @return	{string}	obj.env							Environment (parsed from one of the folders, Development, Production, Staging, etc)
-		 * @return	{object}	obj.job							Object with details of the current job
-		 * @return	{string}	obj.job.name				Name of the current job being ran
-		 * @return	{string}	obj.job.path					Path of the job being ran (without 'job/' in each folder)
-		 * @return	{array}	obj.job.segments			URL segments of job split up into an array
-		 * @return	{string}	obj.action						Action being taken - build, rebuild, configure, ws (workspace), move, etc 
-		 */
-		getReqDetails: function getReqDetails( reqPath ){
-			if( reqPath === undefined )
-				reqPath = window.location.pathname
 			
-			var _console = new Utils.console( 'Utils.getReqDetails' ),
-			// Object to contain details about the current request (username, folder, build, etc)
-				reqDetails = {
-				// Default the username to null, reset it if found 
-				username: null,
-				env: null,
-				job: {
-					name: null,
-					path: '',
-					segments: []
-				},
-				action: null
-			}
-			
-			// Try to get the users login from the profile link 
-			var $accountLink = $( 'div.login > span > a' )
-			
-			if( $accountLink ){
-				if( $accountLink.attr('href') ){
-					var linkHrefMatch = $accountLink.attr('href').match( /^\/user\/(.*)$/ )
-
-					if( linkHrefMatch ){
-						_console.debug( 'Username: ' + linkHrefMatch[1])
-						reqDetails.username = linkHrefMatch[1]
-					}
-					else {
-						_console.debug( 'Href not matched' )
-					}
-				}
-				else {
-					_console.debug( 'No href in profile link' )
-				}
-			}
-			else {
-				_console.debug( 'No account link found' )
-			}
-
-			// Get the job path and job segments from the URL
-			var jobMatch = reqPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
-				  segs
-				  
-
-			// Loop through the job matches and only get the part thats the job name
-			// TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
-			if( jobMatch )
-				$.each( jobMatch, function( k, j ){	
-					j = j.replace(/^\//g, '')
-					segs = j.split( '/' )
-					
-					reqDetails.job.path = reqDetails.job.path + '/' + segs[1]
-					reqDetails.job.segments.push( segs[1] )
-				})
-
-			// Set the job name
-			reqDetails.job.name = reqDetails.job.segments.slice(-1)[0] 
-
-			// Get the action being performed
-			var actionMatch = reqPath.match( /\/(build|configure|ws|rebuild|changes|move|jobConfigHistory)\/?$/ )
-			
-			if( actionMatch )
-				reqDetails.action = actionMatch[1]
-			
-			// If there are any request details function hooks, execute them
-			if( typeof Hooks.reqDetails === 'object' ){
-				var tmpReqDetails
-				
-				$.each( Hooks.reqDetails, function( hook, func ){
-					_console.debug( 'Executing reqDetails hook %s', hook)
-
-					tmpReqDetails = func( reqDetails )
-
-					if( typeof tmpReqDetails === 'object' ){
-						//reqDetails = tmpReqDetails
-						$.extend( reqDetails, tmpReqDetails );
-					}
-					else {
-						_console.warn( 'The reqDetails hook %s did not return an object, it returned typeof: %s', hook, typeof tmpReqDetails)
-					}
-				})
-			}
-			
-			return reqDetails
-		},
-		
-		/**
-		 * Retrieve the input element for a specific parameter, specified by the parameters name.
-		 * 
-		 * @param	{string}		paramName				Name of the parameter in the current Jenkins build
-		 * @return	{string}		obj.type					Type of input (checkbox, select, multiselect, radio, text, textarea)
-		 * @return	{function}	obj.value					Retrieve the value of the parameter 
-		 * @return	{element}	obj.$element			jQuery element for parameter name (hidden field)
-		 * @return	{element}	obj.$valueInput	jQuery element for parameter input
-		 * @return	{element}	obj.$tableRow			jQuery element for the parameters parents tbody row in the table
-		 * @return	{function}	obj.hide					Function to hide the parameter in the Parameters table (sets css display: none)
-		 * @return	{function}	obj.show					Function to show the parameter in the Parameters table (removes css display prop)
-		 */
-		getJenkinsParam: function getJenkinsParam( paramName ){
-			var _console = new Utils.console( 'Utils.getJenkinsParam' )
-			
-			if( ! paramName ){
-					_console.error( 'No param name provided' )
-					return false
-			}
-			
-			var paramData = {}
-			
-			// jQuery handler for the hidden element containing the parameters name
-			paramData.$element = $( "input:hidden[value='"+ paramName +"']" )
-			
-			// jQuery handler for the table row of the parameter
-			paramData.$tableRow = paramData.$element
-				.parent( 'div[name="parameter"]')
-				.parent( 'td.setting-main' )
-				.parent( 'tr' )
-				.parent( 'tbody' )
-				
-			if( ! paramData.$tableRow.length ){
-				_console.warn( 'Error finding the table row for the parameter name %s', paramName )
-				paramData.$tableRow = null
-			}
-			
-			// Function to show the entire row in the parameters table
-			paramData.show = function(){
-				paramData.$tableRow.css({ 'display': '' })
-			}
-			
-			// Function to hide the entire row in teh parameters table
-			paramData.hide = function(){
-				paramData.$tableRow.css({ 'display': 'none' })
-			}
-			
-			// Different parameter input types are named differently;  Most param inputs are named value...
-			if( paramData.$element.next("[name='value']" ).length ){
-				paramData.$valueInput = paramData.$element.next("[name='value']" )
-			}
-			
-			// .. except for multi-select inputs
-			else if( paramData.$element.next("[name='labels']" ).length ) {
-				paramData.$valueInput = paramData.$element.next("[name='labels']" )
-			}
-			
-			// If no element is found..
-			else {
-				_console.error( 'No parameter found with the name', paramName )
-				return false
-			}
-			
-			paramData.type = paramData.$valueInput.prop( 'type' )
-			
-			paramData.value = function(){
-				return paramData.$valueInput.val()
-			}
-			
-			// If theres no 'type' attribute, then try to deduce the type manually
-			if( ! paramData.type ){
-				if( paramData.$valueInput.is( 'multiselect' ) )
-					paramData.type = 'select-multiple'
-				
-				else if( paramData.$valueInput.is( 'select' ) )
-					paramData.type = 'select-one'
-				
-				else 
-					_console.error( 'Unable to determine the input type for parameter ' + paramName )
-			}
-			else {
-				if( paramData.type === 'checkbox' ){
-					//paramData.value = paramData.$valueInput.is( ':checked' )
-					paramData.value = function() {
-						return paramData.$valueInput.is( ':checked' )
-					}
-				}
-			}
-		
-			_console.debug( 'Param: ' + paramName, paramData )
-			
-			return paramData;
-		},
-
 		/**
 		 * Jenkins Parameter Class - Returns an object that can be used to manage a Jenkins parameter
 		 *
@@ -1154,14 +958,15 @@ if ( ! Array.prototype.remove ) {
 			 *								toggleDbHostVisibility and setCredParamsVisibility
 			 */
 			function showAppropriateDbParams(){
-				var	_console = new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' ),
-						selectedServerOptions = paramServer.getValue(),
+				var	_console 						= new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' ),
+						selectedServerOptions 	= paramServer.getValue(),
 						// All DB Host params - used to keep track of which params need to be hidden after select ones are shown
-						allDbHostParams = getAllDbHostParams(),
-						repository = paramRepo.value(),
-						selectedSites = getSelectedSiteIds() || [],
-						toHide = allDbHostParams || [], 
-						toShow = [],  thisParam
+						allDbHostParams			= getAllDbHostParams(),
+						repository 					= paramRepo.value(),
+						selectedSites 				= getSelectedSiteIds() || [],
+						toHide 							= allDbHostParams || [], 
+						toShow 						= [],  
+						thisParam
 				
 				setEnvParamVisibility()
 				
@@ -1259,9 +1064,9 @@ if ( ! Array.prototype.remove ) {
 			}
 			
 			function setEnvParamVisibility(){
-				var	webappName = paramWebApp.getValue(),
-						webappProject = webappName.match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/),
-						repository = paramRepo.getValue()
+				var	webappName 	= paramWebApp.getValue(),
+						webappProject 	= webappName.match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/),
+						repository 		= paramRepo.getValue()
 						
 				console.log('Deploying project in repo:', repository)
 					
@@ -1287,9 +1092,9 @@ if ( ! Array.prototype.remove ) {
 				var	_console = new Utils.console( 'Deployments.manageEnvParams > setCredParamsVisibility' ),
 				// Store the params to toggle in here
 						credParams = {
-					DB_Username:  new Utils.jenkinsParam( 'DB_Username' ),
-					DB_Password: 	 new Utils.jenkinsParam( 'DB_Password' ),
-					Application_Key: new Utils.jenkinsParam( 'Application_Key' )
+					DB_Username	: new Utils.jenkinsParam( 'DB_Username' ),
+					DB_Password	: new Utils.jenkinsParam( 'DB_Password' ),
+					Application_Key	: new Utils.jenkinsParam( 'Application_Key' )
 				}
 				
 				// If were setting them to visible, then remove the style (which would have display: none)
@@ -1354,6 +1159,7 @@ if ( ! Array.prototype.remove ) {
 			 */
 			function setSiteDbHostParamVisibility( site, visibility ){
 				var	_console = new Utils.console( 'Deployments.manageEnvParams > setSiteDbHostParamVisibility' )
+				
 				if( ! site || typeof site !== 'string' ){
 					_console.error( 'Site value not provided or not a string' )
 					return false
@@ -1424,11 +1230,11 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}								This function just cancels a form submission at the most.
 		 */
 		requireBuildParams: function requireBuildParams( reqDetails ){
-			var	_console = new utils.console( 'General.requireBuildParams' ),
-					$paramForm = $( 'form[name="parameters"]' ),
-					$reqElements = $( 'required, span.required-param' ), 
-					reqParams = {}, 
-					emptyParams = [], 
+			var	_console 			= new utils.console( 'General.requireBuildParams' ),
+					$paramForm 	= $( 'form[name="parameters"]' ),
+					$reqElements 	= $( 'required, span.required-param' ), 
+					reqParams 		= {}, 
+					emptyParams 	= [], 
 					$reqElem, 
 					paramName,
 					thisVal
@@ -1480,8 +1286,6 @@ if ( ! Array.prototype.remove ) {
 			})
 			*/
 			
-			
-			
 			// Validate the parameter inputs when the form gets submitted
 			$paramForm.submit(function( e ) {
 				//e.preventDefault()
@@ -1524,8 +1328,8 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}							This function just interacts with the CSS style of HTML elements
 		 */
 		clearPasswordParams: function clearPasswordParams( reqDetails ){
-			var 	_console = new Utils.console( 'General.clearPasswordParams' ),
-					$pwdInputs = $( 'input.setting-input:password' )
+			var 	_console 		= new Utils.console( 'General.clearPasswordParams' ),
+					$pwdInputs 	= $( 'input.setting-input:password' )
 
 			$pwdInputs.each(function( i, pi ) {
 				_console.debug( 'Clearing text from password input #', i )
@@ -1542,9 +1346,10 @@ if ( ! Array.prototype.remove ) {
 		 * @return	{void}
 		 */
 		setBuildPageDescription: function setBuildPageDescription( reqDetails ){
-			var	_console = new utils.console( 'General.setBuildPageDescription' ),
-					$buildDesc = $( 'builddesc, builddescription, build-desc, build-description' ),
-					descHtml, thisDesc
+			var	_console 		= new utils.console( 'General.setBuildPageDescription' ),
+					$buildDesc 	= $( 'builddesc, builddescription, build-desc, build-description' ),
+					descHtml, 
+					thisDesc
 						
 			if( $buildDesc.length === 0 )
 				return
