@@ -69,8 +69,16 @@ if ( ! Array.prototype.remove ) {
 			'API','WebApp' 
 		],
 		// Enable/disable debugging - This is overridden by setting the debug value in the request params
-		debug: false,
+		debug: 0,
+		// Determines if the debug level should be set to whatever the debug value may have been in the 
+		// referrer. This is useful for when you just append ?debug=N to the request URI, then submit a 
+		// form or click a link, as the debug level will stay at N
+		persistentDebugging: true,
+		// When enabled, a helpful messsage about how to view debugging logs is displayed in the console
+		showDebugHelp: true,
+
 		// END Custom user settings ---------------------------------------------------------------
+		// Dont change anything below this line, unless you know what you are doing
 
 		/**
 		 * Settings below this line are used by the Jenkins jQuery framework, and should only be 
@@ -87,15 +95,42 @@ if ( ! Array.prototype.remove ) {
 		],
 		// 
         jenkinsParamTypes: {
-        	file					: 'file-upload',
-        	tag					: 'subversion',
-        	runId				: 'run',
+        	file			: 'file-upload',
+        	tag				: 'subversion',
+        	runId			: 'run',
         	credentialType	: 'credentials',
-			labels				: 'node'
+			labels			: 'node'
         },
+        // Jenkins parameter value names
 		jenkinsParamValueNames: [ 
 			'value', 'labels' 
-		]
+		],
+		// Highest debug level allowed - the higher the debug #, the more the verbosity. There is a "debugN" 
+		// (where N is the debug level) method returned from Utils.console for each debug verbosity. So if 
+		// this gets lowered to a value lower than some existing debugN methods, a fatal error will be 
+		// thrown, since that debugN was never created
+		maxDebugLevel: 3,
+		// Regular Expression patterns used throughout the script. I update these every so often to patterns 
+		// that are more stable/reliable, so why not make them easily configurable!
+		// Note: Do NOT touch these unless you are 100% sure you know what you're doing, and you've tested 
+		// the patterns thoroughly
+		regexPatterns: {
+			// This matches for any parameters in the URL. 
+			// Example - String: http://site.com/page?foo=bar&baz=quux Result: foo=bar&baz=quux
+			// Used by: Utils.getUrlParam
+			requestUriParams: /^(?:(?:.*)\?)?(.*)$/,
+			// Match a username in the href attribute of the element found at $('div#header > div.login > span > a:first')
+			// Used by: Utils.pageDetails
+			accountLink 	: /^\/user\/(.*)$/,
+			// Match for the request path in a provided string (presumably a URL). 
+			// Example - String: http://localhost:8080/job/test-job/?foo=bar Result: /job/test-job/
+			// Used by: Utils.getJobDetailsFromURL
+			urlRequestPath 	: /(?:(?:[^\:]*)\:\/\/)?(?:(?:[^\:\@]*)(?:\:(?:[^\@]*))?\@)?(?:(?:[^\/\:]*)\.(?=[^\.\/\:]*\.[^\.\/\:]*))?(?:[^\.\/\:]*)(?:\.(?:[^\/\.\:]*))?(?:\:(?:[0-9]*))?(\/[^\?#]*(?=.*?))?(?:[^\?#]*)?(?:\?(?:[^#]*))?(?:#(?:.*))?/,
+			// Match the job name elements from a build URL
+			// Used by: Utils.getJobDetailsFromURL
+			// Example - String: http://localhost:8080/job/Foo/job/Bar/build?delay=0sec Result: [ Foo, Bar ]
+			jenkinsJobUrl 	: /(?:^|[\/;])job\/([^\/;]+)/g
+		}
 	}
 	
 	$( document ).ready(function() {
@@ -113,13 +148,14 @@ if ( ! Array.prototype.remove ) {
 		init: function init( ){
 			var _console = new Utils.console( 'controller.init' )
 
-            _console.log( 'Welcome - jQuery Jenkins UI initiated' )
+            _console.debug1( 'Welcome - jQuery Jenkins UI initiated' )
 
-			// If the GET parameter 'debug' is set to 1 or true, or the window.debug variable is set to 1 or true, then enable debugging 
-			if( Utils.isDebugEnabled() )
-				settings.debug = true
+            // Show the debugging help message if the showDebugHelp is true. This shows a message in the console 
+            // telling the viewer how to view debugging logs and set the different verbosity levels
+            if( settings.showDebugHelp === true )
+            	Utils.debugHelpMessage()            
 			
-			var pageDetails = new Utils.pageDetails(  )
+			var pageDetails = new Utils.pageDetails()
 
             this.pageDetails = pageDetails
 
@@ -205,8 +241,17 @@ if ( ! Array.prototype.remove ) {
 			, allBuilds: function( pageDetails ){
 				//var req = new Utils.pageDetails()
 				
-				console.log('Utils.pageDetails username: %s', pageDetails.username )
+				console.log( 'Utils.pageDetails username: %s', pageDetails.username )
 	
+				if( false ){
+					setInterval(function(){
+						console.log( 'Debug Level:', Utils.getDebugLevel() )
+					}, 1500)
+				}
+				else {
+					console.log( 'Debug Level:', Utils.getDebugLevel() )
+				}
+
 				// Clear the password parameter values on any build/rebuild actions
 				if( pageDetails.job && pageDetails.job.isBuild === true )
 					General.clearPasswordParams( pageDetails )
@@ -224,12 +269,6 @@ if ( ! Array.prototype.remove ) {
 			, showJobDetails: function( pageDetails ){
 				console.log('Job Details:', ( typeof pageDetails.job === 'object' ? pageDetails.job : 'None' ) )
 			}
-			/*, loopExecute: function( pageDetails ){
-				setInterval(function(){
-					console.log('Debug Status:', Utils.isDebugEnabled())
-				}, 3000)
-			}
-			*/
 		}
 	}
 	
@@ -280,8 +319,8 @@ if ( ! Array.prototype.remove ) {
          * @return	{function}	obj.error		Function that can be used just like console.error()
          */
         console: function ( prefix ) {
-        	var 	thisObj = this,
-					debugLevels = 3
+        	var 	thisObj 	= this,
+					debugLevels = settings.maxDebugLevel
 					
             // Set the prefix for any console output via the internal debug/warn/error/log methods
             thisObj._prefix = prefix || Utils.getCallerFuncName() || null
@@ -295,13 +334,13 @@ if ( ! Array.prototype.remove ) {
                 }
             }
 		
-			// default the debug level to 1 if debugLevels isnt a number or is 0
-			if( typeof debugLevels !== 'number' || debugLevels == 1 )
-				debugLevels = 1
+			// default the debug level to 1 if settings.maxDebugLevel isnt a number or is 0
+			if( typeof settings.maxDebugLevel !== 'number' || settings.maxDebugLevel == 1 )
+				settings.maxDebugLevel = 1
 			
 			var debugObj, lvl
 			
-			// Create $debugLevels debuggers named debugN and vardumpN
+			// Create $settings.maxDebugLevel debuggers named debugN and vardumpN
 			for( var i = 0; i < 3; i++){
 				lvl = i+1
 				
@@ -345,21 +384,7 @@ if ( ! Array.prototype.remove ) {
 		 * @return 	{function}	this.console		The console.debug wrapper function
 		 * @return 	{function}	this.vardump		Just a vardump for whatever parameters are provided
          */
-        debugger: function( level, prefix ){
-        	// Function to determine if debug is enabled or not (by looking at the URL)
-            function _debugLevel(){ return 3
-            	var debugSetting = Utils.getUrlParam( 'debug' ) || settings.debug
-
-            	if( typeof debugSetting === 'number' || parseInt( debugSetting ) == debugSetting )
-            		return parseInt( debugSetting )
-
-            	else if( debugSetting === true || debugSetting === 'true' ) 
-            		return 1
-
-            	else 
-                	return 0
-            }
-			
+        debugger: function( level, prefix ){			
 			var returnObj = {}
 			
 			/**
@@ -370,7 +395,7 @@ if ( ! Array.prototype.remove ) {
 			 */
         	returnObj.console = function( ){
         		var args = arguments
-                if( _debugLevel() >= level && args ){
+                if( Utils.getDebugLevel() >= level && args ){
                     if( prefix ) args[ 0 ] = '(' + level + ')[' + prefix + '] ' + args[ 0 ]
                     
                     console.debug.apply( console, arguments )
@@ -386,7 +411,7 @@ if ( ! Array.prototype.remove ) {
 			 */
 			returnObj.vardump = function(  ){
         		var args = arguments
-                if( _debugLevel() >= level && args ){
+                if( Utils.getDebugLevel() >= level && args ){
                     if( prefix ) args[ 0 ] = '(' + level + ')[' + prefix + '] ' + args[ 0 ]
                     
                     console.debug.apply( console, arguments )
@@ -395,24 +420,6 @@ if ( ! Array.prototype.remove ) {
 			
 			return returnObj
         },
-		
-		/**
-		 * Determine if debugging is enabled or not. This is done by checking for debug=n in the URL, or if 
-		 * window.debug is set to true or a number.
-		 *
-		 * @return	{boolean}		True or false if debugging is enabled
-		 */
-		isDebugEnabled: function( ){
-			var 	urlDebug 		  = Utils.getUrlParam( 'debug' ),
-					windowDebug = window.debug
-			
-			//return Utils.getUrlParam( 'debug' ) == 'true' || Utils.getUrlParam( 'debug' ) == '1' || window.debug == true || window.debug == 1
-			
-			// If ?debug=true or ?debug=1 (or greater than 1)
-			return ( urlDebug == 'true' || ( isNaN( parseInt( urlDebug ) ) && parseInt( urlDebug ) > 0 ) )
-			// If window.debug=true or window.debug=1 (or greater than 1)
-				|| ( windowDebug == true || ( isNaN( parseInt( windowDebug ) ) && parseInt( windowDebug ) > 0 ) )
-		},
 
         /**
          * Function to attempt to get the name of the function, that calls the function, that calls Utils.getCallerFuncName(). For example, if
@@ -436,21 +443,157 @@ if ( ! Array.prototype.remove ) {
         },
 
         /**
+         * Get the debug level. This processes different locations that the debug variable can be defined, and 
+         * prioritizes them properly, then returns the numeric value of whatever was found, or 0 if none was found
+         * Note: No instance of Utils.console is used in here, since it will forkbomb the browser by executing itself
+         *
+         * @return 	{number}	Debug level to be used (or 0 if none found)
+         */
+        getDebugLevel: function(){
+        	// Different debug values from different locations it can be stored/found
+        	var debugVals = {
+        		// The GIT parameters stored in the URL of the referring document
+				referrerUrl	: Utils.getUrlParam( 'debug', document.referrer ),
+				// The GIT parameters stored in the URL of the current document
+				currentUrl	: Utils.getUrlParam( 'debug' ),
+				// URL Hash value (in same format as previous two - http://site:8080/#debug=3)
+				hashDebug	: Utils.getUrlParam( 'debug', window.location.hash.substring( 1 ) ),
+				// if window.debug is set
+				windowDebug	: window.debug,
+				// The configured debug level in the settings object
+				settingVal	: settings.debug
+			}
+
+			//console.debug( 'debugVals:', debugVals )
+        	//console.debug( 'Referrer debug (referrer: %s):', document.referrer, debugVals.referrerUrl )
+        	//console.debug( 'Current debug:', debugVals.currentUrl )
+
+        	/**
+        	 * Local function to convert the value of one of the debug settings from a numeric or boolean, to numeric
+        	 *
+        	 * @param 	{boolean,number,string}		debugVal 	Value to parse/convert
+        	 * @return 	{number,void}							Returns a numeric value, or void
+        	 */
+        	var _parseDebugVal = function( debugVal ){
+        		if( typeof debugVal === 'number' )
+        			return debugVal
+        		
+        		if( typeof debugVal === 'boolean' )
+        			return ( debugVal === true 
+        				? 1 
+        				: 0 )
+
+        		return 
+        	}
+
+        	// If Persistent Debugging is enabled, and the referring URL has debug set in the URL hash, then return that
+        	if( settings.persistentDebugging === true && _parseDebugVal( debugVals.hashDebug ) !== undefined )
+        		return _parseDebugVal( debugVals.hashDebug )
+
+        	// If Persistent Debugging is enabled, and the referring URL has debug set in the URL parameters, then return that
+        	else if( settings.persistentDebugging === true && _parseDebugVal( debugVals.referrerUrl ) !== undefined )
+        		return _parseDebugVal( debugVals.referrerUrl )
+        	
+        	// If debug is set in the current URL, then use that value
+        	else if( _parseDebugVal( debugVals.currentUrl ) !== undefined )
+        		return _parseDebugVal( debugVals.currentUrl )
+        	
+        	// If the window.debug value wa set, then use it
+        	else if( _parseDebugVal( debugVals.windowDebug ) !== undefined )
+        		return _parseDebugVal( debugVals.windowDebug )
+
+        	// Lastly, the standard settings.debug value
+        	else if( _parseDebugVal( debugVals.settingVal ) !== undefined )
+        		return _parseDebugVal( debugVals.settingVal )
+
+        	// If nothing else was reached, then just disable debugging
+        	return 0
+        },
+
+        debugHelpMessage: function(){
+        	var debugPrefix = '[Debug Help Message]'
+        	//to a numeric value from 1 to 3, or to "true" (which is level 1)
+        	console.debug( '%s To enable debugging, you must set the debugging level a numeric value between 0 and 3, or set it to true (which then defaults to level 1)', debugPrefix )
+        	console.debug( '%s There are 4 ways to set the debugging verbosity level (listed in order of priority):', debugPrefix )
+        	console.debug( '%s \t1) Set the "debug" parameter in the request URI Hash (EG: %s)', debugPrefix, window.location.origin + window.location.pathname + '#debug=3' )
+        	console.debug( '%s \t2) Set the "debug" parameter in the request URI (EG: %s)', debugPrefix, window.location.origin + window.location.pathname + '?debug=3' )
+        	console.debug( '%s \t3) Set the settings.debug value ', debugPrefix )
+        	console.debug( '%s \t4) Set the window.debug value (This can be done in the console by just typing: window.debug = 3)', debugPrefix )
+        	console.debug( '%s To hide this message, set the settings.showDebugHelp message to false, or remove it all together', debugPrefix )
+        },
+
+        /**
          * Retrieve the value of a specified GET param within the URL
          *
-         * @param	{string}	sParam		Name of parameter to get value for
-         * @return	{string}					Value of parameter in URL
+         * @param	{string}		param		Name of parameter to get value for
+         * @param 	{string}		requestURI 	Request URI to parse, can be a full URL, or just the search segment
+         * @param 	{boolean}		skipParse	Set this to true to skip the value parsing and just return the exact value 
+         *										in the URL
+         * @return	{void,string}				Value of parameter in URL
          */
-        getUrlParam: function getUrlParam( sParam ) {
-            var sPageURL 	  		= decodeURIComponent( window.location.search.substring( 1 ) ),
-                sURLVariables 		= sPageURL.split( '&' ),
-                sParameterName
+        getUrlParam: function getUrlParam( param, requestURI, skipParse ) {
+        	//var _console = new Utils.console( 'Utils.getUrlParam' )
 
-            for ( var i = 0; i < sURLVariables.length; i++ ) {
-                sParameterName = sURLVariables[ i ].split( '=' )
+        	// If there wasnt a requestURI provided, then default to the windows current location search
+        	if( ! requestURI ){
+        		requestURI = window.location.search.substring( 1 )
+        		//console.debug( 'No requestURI provided - defaulted to window.location.search (%s)', requestURI )
+        	}
 
-                if ( sParameterName[ 0 ] === sParam )
-                    return sParameterName[ 1 ] === undefined ? true : sParameterName[ 1 ]
+        	// If a requestURI value was provided, then attempt to regex it for the actual search string 
+        	// (so from http://site.com/foo/?var=val, match for var=val)
+        	else {
+        		//console.debug( 'requestURI provided - %s', requestURI )
+
+        		var requestUriRegex = requestURI.match( settings.regexPatterns.requestUriParams )
+
+        		// If a regex match fails, then its likely that the requestURI just didnt have a search segment in it
+        		if( ! requestUriRegex ){
+        			console.debug( 'Regex match against request URI %s failed - assuming no params were found' )
+        			return 
+        		}
+
+        		//console.debug( 'Regular expression results from parsing requestURI %s - ', requestURI, requestUriRegex )
+        		//console.debug( 'Resetting requestURI value to the location.search value from the referrer (%s)', requestUriRegex[ 1 ] )
+
+        		requestURI = requestUriRegex[ 1 ]
+        	}
+
+        	// Since the requestURI should now be in this=type&of=format, split it by &, loop through those, splitting 
+        	// them by = to get the variable name and value
+            var searchLocation	= decodeURIComponent( requestURI ),
+                searchVars 		= searchLocation.split( '&' ),
+                urlParamName,
+                tmpVal
+
+            // Loop through each search vars found after splitting requestURI by &
+            for ( var i = 0; i < searchVars.length; i++ ) {
+                urlParamName = searchVars[ i ].split( '=' )
+
+                // If this current parameter name is whats being filtered for, then parse the value and return it
+                if ( urlParamName[ 0 ] === param ){
+                	tmpVal = $.trim( urlParamName[ 1 ] )
+
+					// If the skipParse value wasnt set, then attempt to parse the parameter value. Since were pulling 
+					// the value from the URL, its going to be a string. So attempt to parse the value and convert it 
+					// to whatever type it could be
+                	if( skipParse !== true ){
+		                if( ( urlParamName[ 1 ] ).toLowerCase() == 'true' )
+		                	tmpVal = true
+		                else if( ( urlParamName[ 1 ] ).toLowerCase() == 'false' )
+							tmpVal = false
+						else if( ( urlParamName[ 1 ] ).toLowerCase() == 'null' )
+							tmpVal = null
+		                else if( parseFloat( urlParamName[ 1 ] ) == urlParamName[ 1 ] )
+		                	tmpVal = parseFloat( urlParamName[ 1 ] )
+		                //else if( urlParamName[ 1 ].length === 0 )
+		                //	tmpVal = undefined
+		                
+	                }
+
+                    //return urlParamName[ 1 ] === undefined ? true : tmpVal
+                    return tmpVal
+                }
             }
         },
 
@@ -483,7 +626,7 @@ if ( ! Array.prototype.remove ) {
             var thisClass 	= this,
                 _console 	  	= new Utils.console( 'Utils.pageDetails' ),
                 // Try to get the users login from the profile link
-                $accountLink = $( 'div.login > span > a' )
+                $accountLink = $( 'div#header > div.login > span > a:first' )
 
 			thisClass.referrer 	 	 = document.referrer || null
             thisClass.requestPath = window.location.pathname
@@ -502,7 +645,7 @@ if ( ! Array.prototype.remove ) {
 			// Get Account Username ------------------------------------------------------------------
             if( $accountLink ){
                 if( $accountLink.attr('href') ){
-                    var linkHrefMatch = $accountLink.attr('href').match( /^\/user\/(.*)$/ )
+                    var linkHrefMatch = $accountLink.attr('href').match( settings.regexPatterns.accountLink )
 
                     if( linkHrefMatch ){
                         _console.debug( 'Username: ' + linkHrefMatch[1])
@@ -623,8 +766,8 @@ if ( ! Array.prototype.remove ) {
 		 *
 		 */
 		getJobDetailsFromURL: function( pageDetails, requestPath ){
-			var 	_console = new Utils.console( 'Utils.getJobDetailsFromURL' ),
-					jobDetails
+			var  _console = new Utils.console( 'Utils.getJobDetailsFromURL' ),
+				 jobDetails
 					
 			// Make sure we were given an instance of Utils.pageDetails
 			if( ! ( pageDetails instanceof Utils.pageDetails ) ){
@@ -648,7 +791,8 @@ if ( ! Array.prototype.remove ) {
 			
 			_console.debug3( 'Request path provided: %s', requestPath )
 			
-			var reqPathMatches = requestPath.match( /(?:(?:[^\:]*)\:\/\/)?(?:(?:[^\:\@]*)(?:\:(?:[^\@]*))?\@)?(?:(?:[^\/\:]*)\.(?=[^\.\/\:]*\.[^\.\/\:]*))?(?:[^\.\/\:]*)(?:\.(?:[^\/\.\:]*))?(?:\:(?:[0-9]*))?(\/[^\?#]*(?=.*?))?(?:[^\?#]*)?(?:\?(?:[^#]*))?(?:#(?:.*))?/ )
+			// Longest... regex... evarrr
+			var reqPathMatches = requestPath.match( settings.regexPatterns.urlRequestPath )
 			
 			// Make sure this was a valid request path
 			if( ! reqPathMatches || typeof reqPathMatches !== 'object' || reqPathMatches[1] === undefined ){
@@ -661,7 +805,7 @@ if ( ! Array.prototype.remove ) {
 			_console.debug2( 'Regex against the request path provided yielded the result: %s', requestPath )
 			
 			// Get the job path and job segments from the URL
-			var  	jobMatch = requestPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
+			var  	jobMatch = requestPath.match( settings.regexPatterns.jenkinsJobUrl ),
 					jobPathSegments
 					
 			 // Loop through the job matches and only get the part thats the job name
@@ -676,7 +820,7 @@ if ( ! Array.prototype.remove ) {
             jobDetails = {
                 isBuild		: false,
                 name		: null,
-                path			: '',
+                path		: '',
                 segments	: []
             }
 			
@@ -710,70 +854,6 @@ if ( ! Array.prototype.remove ) {
 		},
 		
 		/**
-		 * Get the details about a job while at the build form. This is done mostly by parsing the URL and the build parameters form
-		 *
-		 * @param 	{object}		pageDetails	An Utils.pageDetials object.
-		 * @return	{void}								This method alters the object handed to it, or returns nothing (void) to exit early.
-		 */
-        getJobDetails_DISABLED: function( pageDetails ){		
-            var _console = new Utils.console( 'Utils.getJobDetails' ),
-                // Get the job path and job segments from the URL
-                jobMatch = pageDetails.requestPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
-                jobPathSegments
-
-			if( ! ( pageDetails instanceof Utils.pageDetails ) ){
-				var received
-				if( typeof pageDetails === 'object' )
-						received = 'an instance of the class ' + pageDetails.constructor.name
-				else if( pageDetails === undefined )
-					received = 'nothing'
-				else 
-					received = typeof pageDetails
-				
-				_console.error( 'Expected an instance of Utils.pageDetails - received %s', received )
-				return
-			}
-
-             // Loop through the job matches and only get the part thats the job name
-            // TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
-            if( ! jobMatch ){
-            	_console.debug( 'Regex match against %s did not yield a job name', pageDetails.requestPath )
-            	return 
-            }
-            
-            _console.debug( 'Regex match against %s yielded a job name, updating the pageDetails.job object', pageDetails.requestPath )
-
-            pageDetails.job = {
-                isBuild		: false,
-                name		: null,
-                path			: '',
-                segments	: []
-            }
-			
-			if( ! jobMatch ){
-				_console.debug2( 'No regex results found when parsing URL for a job path/name' )
-				return
-			}
-			
-			$.each( jobMatch, function( k, j ){
-				_console.debug( 'Processing regex match #%s:', k, j )
-				//j = j.replace(/^\//g, '')
-				jobPathSegments = j.replace( /^\//g, '' ).split( '/' )
-
-				pageDetails.job.path = pageDetails.job.path + '/' + jobPathSegments[ 1 ]
-				pageDetails.job.segments.push( jobPathSegments[ 1 ] )
-			})
-			
-
-            // Set the job name
-            pageDetails.job.name = pageDetails.job.segments.slice( -1 )[ 0 ]
-			
-			
-			// Determine job action 
-			Utils.getJobActionFromPath( pageDetails )
-        },
-		
-		/**
 		 * Get the action being executed for a job 
 		 * Note: This should only be executed if the job was found and defined atpageDetails.job. Thus, its executed 
 		 * at the end of Utils.getJobDetails
@@ -805,7 +885,7 @@ if ( ! Array.prototype.remove ) {
 				return null
 			}
 				
-			_console.debug( 'Regex match for a job action against "%s" yielded the array: %s', requestPath, actionMatch.join(', ') )
+			_console.debug( 'Regex match for a job action against "%s" yielded: %s', requestPath, ( typeof actionMatch === 'object' ? actionMatch.join(', ') : actionMatch ) )
 			//_console.debug( 'Regex match for a job action against "%s" yielded type: %s - ', requestPath, typeof actionMatch, actionMatch )
 
 			if( $.inArray( actionMatch[ 1 ], settings.actionVerbs ) === -1 ){
