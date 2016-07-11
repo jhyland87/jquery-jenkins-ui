@@ -87,11 +87,15 @@ if ( ! Array.prototype.remove ) {
 		],
 		// 
         jenkinsParamTypes: {
-        	file: 'file-upload',
-        	tag: 'subversion',
-        	runId: 'run',
-        	credentialType: 'credentials'
-        }
+        	file					: 'file-upload',
+        	tag					: 'subversion',
+        	runId				: 'run',
+        	credentialType	: 'credentials',
+			labels				: 'node'
+        },
+		jenkinsParamValueNames: [ 
+			'value', 'labels' 
+		]
 	}
 	
 	$( document ).ready(function() {
@@ -105,20 +109,17 @@ if ( ! Array.prototype.remove ) {
 		/**
 		 * Controller Initiation - Automatically executed when document.ready, handed the 
 		 * windows location pathname
-		 *
-		 * @param	{string}	httpPath	Value of window.location.pathname, or a string 
-		 *													following the same syntax
 		 */
-		init: function init( httpPath ){
+		init: function init( ){
 			var _console = new Utils.console( 'controller.init' )
 
             _console.log( 'Welcome - jQuery Jenkins UI initiated' )
 
 			// If the GET parameter 'debug' is set to 1 or true, or the window.debug variable is set to 1 or true, then enable debugging 
-			if( Utils.getUrlParam( 'debug' ) == 'true' || Utils.getUrlParam( 'debug' ) == '1' || window.debug == true || window.debug == 1 )
+			if( Utils.isDebugEnabled() )
 				settings.debug = true
 			
-			var pageDetails = new Utils.pageDetails( httpPath )
+			var pageDetails = new Utils.pageDetails(  )
 
             this.pageDetails = pageDetails
 
@@ -177,40 +178,58 @@ if ( ! Array.prototype.remove ) {
 			*/
 			// Add some cool style stuff to the build pages
 			styleViajQuery: function( pageDetails ){
-				if( pageDetails.job.isBuild === true )
+				if( pageDetails.job && pageDetails.job.isBuild === true )
 					General.styleViajQuery( pageDetails )
-			},
+			}
+			
+			, requireBuildParams: function( pageDetails ){
+				if( pageDetails.job && pageDetails.job.isBuild === true )
+					General.requireBuildParams( pageDetails )
+			}
 			
 			// Sets the Repository parameter based on the Web_Application value - Should excecute for any deployment builds 
-			webappDeploySetRepo: function( pageDetails ){	
+			, webappDeploySetRepo: function( pageDetails ){	
 				// Only execute the setDeployRepo if the job is a Deploy_WebApp job, and we're on the build form
-				if( pageDetails.job.isBuild === true && pageDetails.job.name === 'Deploy_WebApp' )
+				if( pageDetails.job && pageDetails.job.isBuild === true && pageDetails.job.name === 'Deploy_WebApp' )
 					Deployments.setDeployRepo( pageDetails )
-			},
+			}
 			
 			// Change the status of the env param fields based on the Update_Env_File checkbox value
-			webappConfigureEnvParams: function( pageDetails ){
+			, webappConfigureEnvParams: function( pageDetails ){
 				var runOnJobs = [ 'Deploy_WebApp', 'Configure_WebApp' ]
-				if( pageDetails.job.isBuild === true && $.inArray( pageDetails.job.name, runOnJobs ) !== -1 )
+				if( pageDetails.job && pageDetails.job.isBuild === true && $.inArray( pageDetails.job.name, runOnJobs ) !== -1 )
 					Deployments.manageEnvParams( pageDetails )
-			},
+			}
 
 			// Functions I want to execute on all builds
-			allBuilds: function( pageDetails ){
+			, allBuilds: function( pageDetails ){
 				//var req = new Utils.pageDetails()
 				
 				console.log('Utils.pageDetails username: %s', pageDetails.username )
 	
 				// Clear the password parameter values on any build/rebuild actions
-				if( pageDetails.job.isBuild === true )
+				if( pageDetails.job && pageDetails.job.isBuild === true )
 					General.clearPasswordParams( pageDetails )
-				else 
-					console.log( 'The action %s is not a build action', pageDetails.job.action )
-			},
-
-            homeTests: function( pageDetails ){
-                Home_Tests.helloWorld( pageDetails )
-            }
+				
+				/*
+				// If the viewer has just executed a build action, then redirect to the console 
+				if( pageDetails.job && pageDetails.job.referrer && pageDetails.job.referrer.isBuild === true ){
+					setTimeout( function(){
+						General.redirectToConsole( pageDetails )
+					}, 2000 )
+				}
+				*/				
+			}
+			
+			, showJobDetails: function( pageDetails ){
+				console.log('Job Details:', ( typeof pageDetails.job === 'object' ? pageDetails.job : 'None' ) )
+			}
+			/*, loopExecute: function( pageDetails ){
+				setInterval(function(){
+					console.log('Debug Status:', Utils.isDebugEnabled())
+				}, 3000)
+			}
+			*/
 		}
 	}
 	
@@ -229,7 +248,7 @@ if ( ! Array.prototype.remove ) {
             setEnvironment: function( pageDetails ){
 
                 // See if this is in one of the environment folders, if so, set the env
-                if( $.inArray( pageDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
+                if( typeof pageDetails.job === 'object' && $.inArray( pageDetails.job.segments[ 0 ], settings.envFolders ) !== -1 )
                     pageDetails.env = pageDetails.job.segments[ 0 ]
 
                 /*var newStuff = {}
@@ -241,27 +260,6 @@ if ( ! Array.prototype.remove ) {
 
                  return newStuff
                  */
-            },
-
-            /**
-             * Just an example function hook that adds some properties to the Utils.pageDetails object
-             */
-            addProperties: function( pageDetailsObj ){
-                if( ! ( pageDetailsObj instanceof Utils.pageDetails ) ){
-                    console.warn( 'Hooks.pageDetails.modifyObj was was given something that was NOT an instance of Utils.pageDetails' )
-                    return false
-                }
-
-                $.extend( pageDetailsObj, {
-                    location: {
-                        pathname: window.location.pathname
-                    },
-                    alert: function( msg ){
-                        alert( 'Jenkins Alert: ' + msg )
-                    }
-                } )
-
-                return pageDetailsObj
             }
         }
     }
@@ -282,7 +280,9 @@ if ( ! Array.prototype.remove ) {
          * @return	{function}	obj.error		Function that can be used just like console.error()
          */
         console: function ( prefix ) {
-        	var thisObj = this
+        	var 	thisObj = this,
+					debugLevels = 3
+					
             // Set the prefix for any console output via the internal debug/warn/error/log methods
             thisObj._prefix = prefix || Utils.getCallerFuncName() || null
 
@@ -294,11 +294,25 @@ if ( ! Array.prototype.remove ) {
                     console.log.apply( console, arguments )
                 }
             }
-
-            thisObj.debug3 = Utils.debugger( 3, prefix )
-            thisObj.debug2 = Utils.debugger( 2, prefix )
-            thisObj.debug1 = Utils.debugger( 1, prefix )
-            thisObj.debug  = thisObj.debug1
+		
+			// default the debug level to 1 if debugLevels isnt a number or is 0
+			if( typeof debugLevels !== 'number' || debugLevels == 1 )
+				debugLevels = 1
+			
+			var debugObj, lvl
+			
+			// Create $debugLevels debuggers named debugN and vardumpN
+			for( var i = 0; i < 3; i++){
+				lvl = i+1
+				
+				debugObj = Utils.debugger( lvl, prefix )
+				
+				thisObj[ 'debug' + lvl ] 	  = debugObj.console
+				thisObj[ 'vardump' + lvl ] = debugObj.vardump
+			}
+		
+            thisObj.debug   		= thisObj.debug1
+            thisObj.vardump   = thisObj.vardump1
 
             // Wrapper to console.warn()
             this.warn = function( str ){
@@ -320,27 +334,41 @@ if ( ! Array.prototype.remove ) {
         },
 
         /**
-         * Console debugger object
+         * Console debugger object - Basically its used by the debug/debug1/debug2/debug3 methods in
+		 * the Utils.console method. Just prints the debug message out with the prefix if the level that was
+		 * set is less than or greater to the numeric value in the debug method (debug2 = level 2)
+		 *
+		 * @param	{number}		level					Debug level (Defaults to 1)
+		 * @param	{string}		prefix				Debug message prefix
+		 * @return	{object}								Returns an object with a 'console' and 'vardump' functions. Both functions 
+		 *																only work if debug level matches
+		 * @return 	{function}	this.console		The console.debug wrapper function
+		 * @return 	{function}	this.vardump		Just a vardump for whatever parameters are provided
          */
         debugger: function( level, prefix ){
         	// Function to determine if debug is enabled or not (by looking at the URL)
-            function _debugLevel(){
+            function _debugLevel(){ return 3
             	var debugSetting = Utils.getUrlParam( 'debug' ) || settings.debug
 
-            	if( typeof debugSetting === 'number' || parseInt( debugSetting ) == debugSetting ){
+            	if( typeof debugSetting === 'number' || parseInt( debugSetting ) == debugSetting )
             		return parseInt( debugSetting )
-            	}
 
-            	else if( debugSetting === true || debugSetting === 'true' ) {
+            	else if( debugSetting === true || debugSetting === 'true' ) 
             		return 1
-            	} 
 
-            	else {
+            	else 
                 	return 0
-                }
             }
-
-        	return function( str ){
+			
+			var returnObj = {}
+			
+			/**
+			 * Console debug wrapper. Prefix is prepended with the debug level and prefix provided
+			 *
+			 * @param	{string}	*		Any values handed to console.debug
+			 * @return	{void}				Function just executes console.debug()
+			 */
+        	returnObj.console = function( ){
         		var args = arguments
                 if( _debugLevel() >= level && args ){
                     if( prefix ) args[ 0 ] = '(' + level + ')[' + prefix + '] ' + args[ 0 ]
@@ -348,7 +376,43 @@ if ( ! Array.prototype.remove ) {
                     console.debug.apply( console, arguments )
                 }
         	}
+			
+			/**
+			 * Console variable dumper debug wrapper. Prefix is prepended with the debug level and prefix provided. 
+			 * All parameters provided are displayed in the browser console
+			 *
+			 * @param	{string}	*		Any values handed to console.debug to be dumped
+			 * @return	{void}				Function just executes console.debug()
+			 */
+			returnObj.vardump = function(  ){
+        		var args = arguments
+                if( _debugLevel() >= level && args ){
+                    if( prefix ) args[ 0 ] = '(' + level + ')[' + prefix + '] ' + args[ 0 ]
+                    
+                    console.debug.apply( console, arguments )
+                }
+        	}
+			
+			return returnObj
         },
+		
+		/**
+		 * Determine if debugging is enabled or not. This is done by checking for debug=n in the URL, or if 
+		 * window.debug is set to true or a number.
+		 *
+		 * @return	{boolean}		True or false if debugging is enabled
+		 */
+		isDebugEnabled: function( ){
+			var 	urlDebug 		  = Utils.getUrlParam( 'debug' ),
+					windowDebug = window.debug
+			
+			//return Utils.getUrlParam( 'debug' ) == 'true' || Utils.getUrlParam( 'debug' ) == '1' || window.debug == true || window.debug == 1
+			
+			// If ?debug=true or ?debug=1 (or greater than 1)
+			return ( urlDebug == 'true' || ( isNaN( parseInt( urlDebug ) ) && parseInt( urlDebug ) > 0 ) )
+			// If window.debug=true or window.debug=1 (or greater than 1)
+				|| ( windowDebug == true || ( isNaN( parseInt( windowDebug ) ) && parseInt( windowDebug ) > 0 ) )
+		},
 
         /**
          * Function to attempt to get the name of the function, that calls the function, that calls Utils.getCallerFuncName(). For example, if
@@ -362,7 +426,7 @@ if ( ! Array.prototype.remove ) {
                  callerFunc
 
             if( funcName ){
-                var nameMatch = funcName.match(/function ([^\(]+)/)
+                var nameMatch = funcName.match( /function ([^\(]+)/ )
 
                 if( nameMatch )
                     callerFunc = nameMatch[1]
@@ -378,8 +442,8 @@ if ( ! Array.prototype.remove ) {
          * @return	{string}					Value of parameter in URL
          */
         getUrlParam: function getUrlParam( sParam ) {
-            var sPageURL 	  = decodeURIComponent(window.location.search.substring(1)),
-                sURLVariables = sPageURL.split( '&' ),
+            var sPageURL 	  		= decodeURIComponent( window.location.search.substring( 1 ) ),
+                sURLVariables 		= sPageURL.split( '&' ),
                 sParameterName
 
             for ( var i = 0; i < sURLVariables.length; i++ ) {
@@ -416,20 +480,26 @@ if ( ! Array.prototype.remove ) {
          * @todo 	Add a method that can enable/disable the Build button on the build form.
          */
         pageDetails: function pageDetails(){
-            var thisClass 	  = this,
-                _console 	  = new Utils.console( 'Utils.pageDetails' ),
+            var thisClass 	= this,
+                _console 	  	= new Utils.console( 'Utils.pageDetails' ),
                 // Try to get the users login from the profile link
-                $accountLink  = $( 'div.login > span > a' )
+                $accountLink = $( 'div.login > span > a' )
 
-
+			thisClass.referrer 	 	 = document.referrer || null
             thisClass.requestPath = window.location.pathname
+            thisClass.username 	 = undefined
 
-            thisClass.username = undefined
-
-            thisClass.job = {
+            /*
+			thisClass.job = {
             	isBuild: false
             }
 
+			if( thisClass.referrer !== null ){
+				Utils.getLastJob( thisClass )
+			}
+			*/
+			
+			// Get Account Username ------------------------------------------------------------------
             if( $accountLink ){
                 if( $accountLink.attr('href') ){
                     var linkHrefMatch = $accountLink.attr('href').match( /^\/user\/(.*)$/ )
@@ -450,9 +520,59 @@ if ( ! Array.prototype.remove ) {
                 _console.debug2( 'No account link found' )
             }
 
-            // Execute Utils.getJobDetails() to check if this page is a job URL
-           	Utils.getJobDetails( thisClass )
-
+			// Get Current Job Details ------------------------------------------------------------------
+			
+            // Parse the current HTTP request pathname to see if this is a job page...
+           	var jobDetails = Utils.getJobDetailsFromURL( thisClass, window.location.pathname )
+		
+			// If an object was returned, then its the job details. Save it to the job property of this class
+			if( typeof jobDetails === 'object' ){
+				_console.debug3( 'The method Utils.getJobDetailsFromURL() returned an object when given the path "%s", setting the pageDetails.job property', window.location.pathname )
+				_console.debug3( 'Result from Utils.getJobDetailsFromURL():', jobDetails )
+				
+				thisClass.job = jobDetails
+				
+				// If the current job is a build action, then execute Utils.getParamFormDetails to get the build parameter details
+				if( thisClass.job.isBuild === true ){
+					_console.debug3( 'This page is considered a "build action", attempting to retrieve the build parameter details' )
+				
+					var jobParams = Utils.getParamFormDetails( pageDetails )
+					
+					if( typeof jobParams === 'object' ){
+						$.extend( thisClass.job, jobParams )
+						
+						_console.debug3( 'Successfully parsed the build parameter form for parameter details, merged them into the Utils.pageDetails instance object' )
+						_console.debug3( 'Merged value of Utils.pageDetails.job object:', thisClass.job)
+					}
+					else {
+						_console.debug3( 'Expected Utils.getParamFormDetails to return an object -received typeof: %s', typeof jobParams )
+					}
+				}
+			}
+			else {
+				_console.debug3( 'The method  Utils.getJobDetailsFromURL did not return an object when parsing the current request path (%s)', window.location.pathname )
+			}
+			
+			// Get Referrer Job Details ------------------------------------------------------------------
+			if( thisClass.referrer ){
+				_console.debug3( 'Referrer found (%s) - Attempting to parse the referrer URL for possible job details', thisClass.referrer )
+				var previousJobDetails = Utils.getJobDetailsFromURL( thisClass, thisClass.referrer )
+				
+				if( typeof previousJobDetails === 'object' ){
+					_console.debug3( 'The method Utils.getJobDetailsFromURL returned an object when parsing the request path of the referrer (%s), ' 
+						+ 'setting the job.referrer property of  the Utils.pageDetails instance', thisClass.referrer )
+						
+					thisClass.job.referrer = previousJobDetails
+				}
+				else {
+					_console.debug3( 'Referrer found (%s) - Attempting to parse the referrer URL for possible job details', thisClass.referrer )
+				}
+			}
+			else {
+				_console.debug3( 'No referrer found' )
+			}
+			
+			// Execute pageDetails Hooks ------------------------------------------------------------------
             // If there are any request details function hooks, execute them
             if( typeof Hooks.pageDetails === 'object' ){
                 var tmpPageDetails
@@ -498,13 +618,121 @@ if ( ! Array.prototype.remove ) {
                 _console.warn( 'Invalid type found for Hooks.pageDetails - Expecting an object, found typeof: %s', typeof Hooks.pageDetails )
             }
         },
+		
+		/**
+		 *
+		 */
+		getJobDetailsFromURL: function( pageDetails, requestPath ){
+			var 	_console = new Utils.console( 'Utils.getJobDetailsFromURL' ),
+					jobDetails
+					
+			// Make sure we were given an instance of Utils.pageDetails
+			if( ! ( pageDetails instanceof Utils.pageDetails ) ){
+				var received
+				if( typeof pageDetails === 'object' )
+						received = 'an instance of the class ' + pageDetails.constructor.name
+				else if( pageDetails === undefined )
+					received = 'nothing'
+				else 
+					received = typeof pageDetails
+				
+				_console.error( 'Expected an instance of Utils.pageDetails - received %s', received )
+				return false
+			}
+			
+			// And a path name
+			if( ! requestPath ){
+				_console.error( 'Expected an HTTP request path in string format - received typeof: %s; value: ', typeof requestPath, requestPath )
+				return false
+			}
+			
+			_console.debug3( 'Request path provided: %s', requestPath )
+			
+			var reqPathMatches = requestPath.match( /(?:(?:[^\:]*)\:\/\/)?(?:(?:[^\:\@]*)(?:\:(?:[^\@]*))?\@)?(?:(?:[^\/\:]*)\.(?=[^\.\/\:]*\.[^\.\/\:]*))?(?:[^\.\/\:]*)(?:\.(?:[^\/\.\:]*))?(?:\:(?:[0-9]*))?(\/[^\?#]*(?=.*?))?(?:[^\?#]*)?(?:\?(?:[^#]*))?(?:#(?:.*))?/ )
+			
+			// Make sure this was a valid request path
+			if( ! reqPathMatches || typeof reqPathMatches !== 'object' || reqPathMatches[1] === undefined ){
+				_console.error( 'Regex match against the request path string provided (%s) yielded no results - Are you sure this is a valid HTTP request string?', requestPath )
+				return false
+			}
+			
+			requestPath = reqPathMatches[1]
+			
+			_console.debug2( 'Regex against the request path provided yielded the result: %s', requestPath )
+			
+			// Get the job path and job segments from the URL
+			var  	jobMatch = requestPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
+					jobPathSegments
+					
+			 // Loop through the job matches and only get the part thats the job name
+            // TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
+            if( ! jobMatch || typeof jobMatch !== 'object' || jobMatch[1] === undefined ){
+            	_console.debug( 'Regex match against %s did not yield a job name', requestPath )
+            	return false
+            }
+			
+			_console.debug( 'Regex match against %s yielded a job name, updating the pageDetails.job object', requestPath )
 
-        getJobDetails: function( pageDetails ){
+            jobDetails = {
+                isBuild		: false,
+                name		: null,
+                path			: '',
+                segments	: []
+            }
+			
+			
+			$.each( jobMatch, function( k, j ){
+				_console.debug( 'Processing regex match #%s:', k, j )
+				//j = j.replace(/^\//g, '')
+				jobPathSegments = j.replace( /^\//g, '' ).split( '/' )
+
+				jobDetails.path += '/' + jobPathSegments[ 1 ]
+				jobDetails.segments.push( jobPathSegments[ 1 ] )
+			})
+		
+            // Set the job name
+            jobDetails.name = jobDetails.segments.slice( -1 )[ 0 ]
+			
+			// Determine job action 
+			var jobAction = Utils.getJobActionFromPath( requestPath )
+			
+			_console.debug3( 'Result from Utils.getJobActionFromPath when providing the path %s:', requestPath,  jobAction )
+			
+			if( typeof jobAction === 'object' ){
+				$.extend( jobDetails, jobAction )
+				_console.debug3( 'Extended job details object:', jobDetails )
+			}
+			else {
+				_console.debug3( 'The method Utils.getJobActionFromPath did not return an object, Assuming no action was found - not merging result with job details result object' )
+			}
+			
+			return jobDetails
+		},
+		
+		/**
+		 * Get the details about a job while at the build form. This is done mostly by parsing the URL and the build parameters form
+		 *
+		 * @param 	{object}		pageDetails	An Utils.pageDetials object.
+		 * @return	{void}								This method alters the object handed to it, or returns nothing (void) to exit early.
+		 */
+        getJobDetails_DISABLED: function( pageDetails ){		
             var _console = new Utils.console( 'Utils.getJobDetails' ),
                 // Get the job path and job segments from the URL
                 jobMatch = pageDetails.requestPath.match( /(?:^|[\/;])job\/([^\/;]+)/g ),
                 jobPathSegments
 
+			if( ! ( pageDetails instanceof Utils.pageDetails ) ){
+				var received
+				if( typeof pageDetails === 'object' )
+						received = 'an instance of the class ' + pageDetails.constructor.name
+				else if( pageDetails === undefined )
+					received = 'nothing'
+				else 
+					received = typeof pageDetails
+				
+				_console.error( 'Expected an instance of Utils.pageDetails - received %s', received )
+				return
+			}
 
              // Loop through the job matches and only get the part thats the job name
             // TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
@@ -513,83 +741,121 @@ if ( ! Array.prototype.remove ) {
             	return 
             }
             
-
             _console.debug( 'Regex match against %s yielded a job name, updating the pageDetails.job object', pageDetails.requestPath )
 
             pageDetails.job = {
-                isBuild: false,
-                name: null,
-                path: '',
-                segments: []
+                isBuild		: false,
+                name		: null,
+                path			: '',
+                segments	: []
             }
+			
+			if( ! jobMatch ){
+				_console.debug2( 'No regex results found when parsing URL for a job path/name' )
+				return
+			}
+			
+			$.each( jobMatch, function( k, j ){
+				_console.debug( 'Processing regex match #%s:', k, j )
+				//j = j.replace(/^\//g, '')
+				jobPathSegments = j.replace( /^\//g, '' ).split( '/' )
 
-            $.each( jobMatch, function( k, j ){
-            	_console.debug( 'Processing regex match #%s:', k, j )
-                //j = j.replace(/^\//g, '')
-                jobPathSegments = j.replace( /^\//g, '' ).split( '/' )
-
-                pageDetails.job.path = pageDetails.job.path + '/' + jobPathSegments[ 1 ]
-                pageDetails.job.segments.push( jobPathSegments[ 1 ] )
-            })
+				pageDetails.job.path = pageDetails.job.path + '/' + jobPathSegments[ 1 ]
+				pageDetails.job.segments.push( jobPathSegments[ 1 ] )
+			})
+			
 
             // Set the job name
             pageDetails.job.name = pageDetails.job.segments.slice( -1 )[ 0 ]
-
-            // Get the action being performed
-            var actionVerbRegex = new RegExp( '/(' + settings.actionVerbs.join( '|' ) + ')/?$' ),
-                actionMatch = actionVerbRegex.exec( pageDetails.requestPath )
-
-            if( actionVerbRegex === null ) {
-            	_console.debug( 'Regex match for a job action against "%s" yielded no matches', pageDetails.requestPath )
-
-            	return
-            } 
-
-            _console.debug( 'Regex match for a job action against "%s" yielded the array: %s', pageDetails.requestPath, actionMatch.join(', ') )
-
-            if( $.inArray( actionMatch[ 1 ], settings.actionVerbs ) === -1 ){
-            	_console.warn( 'The job action verb found via RegExp match was %s, which was not found in the settings.actionVerbs array - How did that happen?.. Action Verbs: %s', 
-            		actionMatch[ 1 ], settings.actionVerbs.join(', ') )
-            	return
-            }
-
-            pageDetails.job.action = actionMatch[ 1 ]
-
-            _console.debug( 'Found the job action %s', pageDetails.job.action )
-
-            // Check if the action verb found is in the settings.buildActions array, if so, set pageDetails.job.isBuild 
-            // to true and execute Utils.getParamFormDetails()
-            if( $.inArray( pageDetails.job.action, settings.buildActions ) !== -1 ){
-                _console.debug( 'Found the job action %s, which is considered a "Build Action", executing Utils.getParamFormDetails()', pageDetails.job.action )
-
-                pageDetails.job.isBuild = true
-
-                Utils.getParamFormDetails( pageDetails )
-            }
+			
+			
+			// Determine job action 
+			Utils.getJobActionFromPath( pageDetails )
         },
+		
+		/**
+		 * Get the action being executed for a job 
+		 * Note: This should only be executed if the job was found and defined atpageDetails.job. Thus, its executed 
+		 * at the end of Utils.getJobDetails
+		 *
+		 * @param	{object}	pageDetails		Instance of the Utils.pageDetails class
+		 * @param	{void}								This function ammends the pageDetails object thats 
+		 *															provided, or returns void to quit early
+		 */
+		getJobActionFromPath: function( requestPath ){
+			// Get the action being performed
+			var 	_console 		= new Utils.console( 'Utils.getJobActionFromPath' ),
+					actionRegex 	= new RegExp( '/(' + settings.actionVerbs.join( '|' ) + ')/?$' ),
+					actionMatch 	= actionRegex.exec( requestPath ),
+					jobAction 		= {}
+					
+			_console.debug3( 'Parameters handed to Utils.getJobActionFromPath:', arguments)
+			
+			_console.debug3('Value of actionMatch:', actionMatch)
+			
+			// If the construction for the regex pattern containing the action verbs failed, then report it and quit
+			if( actionMatch === null ) {
+				_console.warn( 'Regex match for a job action against "%s" yielded no matches', requestPath )
+
+				return null
+			} 
+
+			if( ! actionMatch ||  typeof actionMatch !== 'object' ){
+				_console.debug2( 'Regex match against %s yielded no matches', requestPath )
+				return null
+			}
+				
+			_console.debug( 'Regex match for a job action against "%s" yielded the array: %s', requestPath, actionMatch.join(', ') )
+			//_console.debug( 'Regex match for a job action against "%s" yielded type: %s - ', requestPath, typeof actionMatch, actionMatch )
+
+			if( $.inArray( actionMatch[ 1 ], settings.actionVerbs ) === -1 ){
+				_console.warn( 'The job action verb found via RegExp match was %s, which was not found in the settings.actionVerbs array - How did that happen?.. Action Verbs: %s', 
+					actionMatch[ 1 ], settings.actionVerbs.join(', ') )
+				return null
+			}
+
+			jobAction.action = actionMatch[ 1 ]
+
+			_console.debug( 'Found the job action %s', jobAction.action )
+
+			// Check if the action verb found is in the settings.buildActions array, if so, set pageDetails.job.isBuild 
+			// to true 
+			if( $.inArray( jobAction.action, settings.buildActions ) !== -1 ){
+				_console.debug2( 'Found the job action %s, which is considered a "Build Action" - setting isBuild to true', jobAction.action )
+
+				jobAction.isBuild = true
+			}
+			
+			return jobAction
+		},
 
         /**
-         * Parse the build parameters form, updating the Utils.pageDetails object by adding a jobs.parameters object
+         * Parse the build parameters form, updating the Utils.pageDetails object (which is provided) by adding a jobs.parameters object
          * containing the parameter data.
+		 * Note: This should only be executed if the viewer is on a specific job, and the action found was considered a "build action". Thus, 
+		 * this gets executed at the end of Utils.getJobActionFromPath if the action found is in the settings.buildActions array. (and Utils.getJobActionFromPath 
+		 * is executed by Utils.getJobDetails if job details were found)
          *
-         * @return  {object}    pageDetails     Page Details..
-         * @var     pageDetails.job.parameters[ parameter_name ].name
+		 * @param	{void}								This function ammends the pageDetails object thats 
+		 *															provided, or returns void to quit early
+         * @var     pageDetails.job.parameters[ parameter_name ].name	
          * @var     pageDetails.job.parameters[ parameter_name ].type
          */
         getParamFormDetails: function( pageDetails ){
-            var _console     		= new Utils.console( 'Utils.getParamFormDetails' ),
-            	jenkinsParamNames 	= Object.keys( settings.jenkinsParamTypes )
+            var _console     			= new Utils.console( 'Utils.getParamFormDetails' ),
+            	jenkinsParamNames 	= Object.keys( settings.jenkinsParamTypes ),
+				resultParameters = {}
 
 			// Most of the parameter value inputs just have the name as 'value', so add that to the selector array
         	jenkinsParamNames.push( 'value' )
 
-            var $paramInputs 		= $( 'div[name="parameter"] > input[name="name"]' ),
+            var $paramInputs 	= $( 'div[name="parameter"] > input[name="name"]' ),
                 $paramTable  		= $( 'table.parameters' ),
                 paramSelector 		= '[name="' + jenkinsParamNames.join( '"], [name="' ) + '"]',
-                returnObj    		= {},
-                $paramElements 		= {
+                returnObj    			= {},
+                $paramElements 	= {
                     name : null,
-                    value: null
+                    value  : null
                 },
                 //paramInputTypeStatus,
                 paramName,
@@ -614,8 +880,9 @@ if ( ! Array.prototype.remove ) {
                 return
             }
 
-            pageDetails.job.parameters = {}
+            resultParameters = {}
 
+			// Iterate through the parameters in the build form
             $paramInputs.each( function( i, paramNameInput ){
             	//paramInputTypeStatus = null
                 $paramElements.name  = $( paramNameInput )
@@ -691,11 +958,16 @@ if ( ! Array.prototype.remove ) {
 	          
                 _console.debug( 'Loaded the build parameter %s into the Utils.pageDetails.job.parameters object', paramName )
 
-                pageDetails.job.parameters[ $paramElements.name.val() ] = {
+                resultParameters[ $paramElements.name.val() ] = {
                     name: paramName,
                     type: paramValType
                 }
             })
+			
+			if( Object.keys( resultParameters ).length === 0 )
+				return resultParameters
+			
+			return resultParameters
         },
 
         /**
@@ -719,9 +991,12 @@ if ( ! Array.prototype.remove ) {
          * @return 	{function} 			this.onClick 		Shortcut to the jQuery onClick event handler
          */
         jenkinsParam: function ( paramName ) {
-            var _console = new Utils.console( 'Utils.jenkinsParam' ),
-                _param   = {}
+            var	_thisObj  = this,
+					_console = new Utils.console( 'Utils.jenkinsParam' ),
+					jenkinsParamValueSelector = "[name='" + settings.jenkinsParamValueNames.join( "'],[name='" ) +"']",
+					_param   = {}
 
+			_console.debug( 'jenkinsParamValueSelector:', jenkinsParamValueSelector)
             // Set the prefix for any console output via the internal debug/warn/error/log methods
             //this._prefix = prefix || Utils.getCallerFuncName() || null
 
@@ -734,15 +1009,15 @@ if ( ! Array.prototype.remove ) {
                 .parent( 'td.setting-main' )
                 .parent( 'tr' )
                 .parent( 'tbody' )
-
+				
             if( ! _param.$tbody.length ){
                 _console.error( 'Error finding the table row for the parameter name %s', paramName )
                 return false
             }
 
             // Different parameter input types are named differently;  Most param inputs are named value...
-            if( _param.$element.next( "[name='value']" ).length ){
-                _param.$valueInput = _param.$element.next( "[name='value']" )
+            if( _param.$element.next( jenkinsParamValueSelector ).length ){
+                _param.$valueInput = _param.$element.next( jenkinsParamValueSelector )
             }
 
             // .. except for multi-select inputs
@@ -756,6 +1031,8 @@ if ( ! Array.prototype.remove ) {
                 return false
             }
 
+			_console.debug( '_param.$valueInput  for param %s:', paramName, _param.$valueInput)
+			
             // Parameter input type
             this.type = _param.$valueInput.prop( 'type' ) || undefined
 
@@ -777,7 +1054,7 @@ if ( ! Array.prototype.remove ) {
                 // Anything here?
             }
 
-            /**
+			/**
              * Retrieve the value of the parameter
              *
              * @param 	{}
@@ -804,22 +1081,25 @@ if ( ! Array.prototype.remove ) {
 
                 return _param.$valueInput.val( value )
             }
-
-            /**
-             * Single method to act as both the getter and setter for the parameters value. If the value parameter is defined, then
-             * this will act as a setter, executing this.setValue(), otherwise, this.getValue() gets returned.
-             *
-             * @param 	{null,string,array,boolean}		value 	Value to set for parameter (value type depends on parameter type)
-             * @return 	{void,string,array,boolean} 			If this is setting the value, then void will be returned, otherwise,
-             * 													this.getValue() will be returned
-             */
-            this.value = function( value ){
-                if( typeof value !== 'undefined' )
-                    return this.setValue( value )
-
-                return this.getValue()
-            }
-
+			
+			// Make a getter/setter for the 'value' property, which are just shortcuts to this.getValue and this.setValue
+			Object.defineProperty( this, 'value', {
+				/**
+				 * Get the value of the current parameter
+				 *
+				 * @return	{mixed}		Returns the value. Value type depends on parameter input type
+				 */
+				get: this.getValue,
+				
+				/**
+				 * Set the value of the current parameter
+				 *
+				 * @param	{mixed}		value	Value to set in current parameter.Value type depends on parameter input type
+				 * @return	{void}
+				 */
+				set: this.setValue
+			})
+			
             /**
              * Method to show the parameter in the parameters table. This sets the CSS display property of the
              * <tbody> containing the parameter to none
@@ -925,10 +1205,13 @@ if ( ! Array.prototype.remove ) {
         },
 
         /**
-         * Toggle the visibility of a Jenkins parameter. This function interacts with the <tbody> element
-         * that contains the targeted parameter(s), and sets the CSS display property to 'none' when hiding,
-         * and removes it when showing the parameter. This can be used to show/hide one parameter, or
-         * multiple parameters (by providing an array)
+         * Toggle the visibility of a Jenkins parameter. This function interacts with the <tbody> element that contains the targeted parameter(s), 
+		 * and sets the CSS display property to 'none' when hiding, and removes it when showing the parameter. This can be used to show/hide 
+		 * one parameter, or multiple parameters (by providing an array)
+		 *
+		 * Note: This hides/shows the parameters in the same way the showParam/hideParam/visibility methods in the Utils.jenkinsParam class. 
+		 * The only difference is this allows you to hide/show the element without having to create an instance of the Utils.jenkinsParam class (at 
+		 * least by yourself... this creates them internally), and you can hide/show more than one parameter.
          *
          * @param	{string,array}	paramName		Either a single parameter name in string format, or an array of parameter names
          * @param	{boolean}		visible				Desired visibility - defaults to true (visible)
@@ -1011,15 +1294,15 @@ if ( ! Array.prototype.remove ) {
             // Whenever the Web_Application parameter is changed, execute the below logic to decide what the repo value should be,
             // or clear it out, if the Web_Application was also cleared
             WebApplication_param.$valueInput.change(function() {
-                if( ! WebApplication_param.getVal() ){
+                if( ! WebApplication_param.value ){
                     _console.debug( 'Webapp cleared - Clearing repo' )
                     setRepo= ''
                 }
                 else {
-                    _console.debug( 'Webapp changed to: ', WebApplication_param.getVal() )
+                    _console.debug( 'Webapp changed to: ', WebApplication_param.value )
 
                     // Use Regular Expression to deduce what application is being deployed, based off of the prefix in the Web_Application value
-                    var webappName = WebApplication_param.getValue().match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/)
+                    var webappName = WebApplication_param.value.match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/)
 
                     // If the regex match was successful, then set the repository value
                     if ( webappName ){
@@ -1070,23 +1353,77 @@ if ( ! Array.prototype.remove ) {
             // Get the 'Update_Env_File' field
             var	_console 					= new Utils.console( 'Deployments.manageEnvParams' ),
                    paramWebApp			= new Utils.jenkinsParam( 'Web_Application' ),
-                   paramRepo				= new Utils.jenkinsParam( 'Repository' ),
+                   //paramRepo				= new Utils.jenkinsParam( 'Repository' ),
                    paramUpdateEnvFile  = new Utils.jenkinsParam( 'Update_Env_File' ),
-                   paramServer 			= new Utils.jenkinsParam( 'Server' ),
+                   paramServer 				= new Utils.jenkinsParam( 'Server' ),
                    dbParams					= {},
-                   serverVals
+                   serverVals,
+				   paramRepo
 
+			
+			/**
+			 * Since the Configure_WebApp doesnt have a Repo param, we need to try to deduce what the repo 
+			 * would be from the selected WebApp
+			 */
+			function assumeRepo(){
+				var 	webAppVal 		= paramWebApp.value,
+						webAppRegex 	= webAppVal.match( /^(?:stage|prod|preprod|dev)?(api|secure|static|www)?\.cy-motion\.com$/ ),
+						resultRepo
+						
+				if( ! webAppRegex ){
+					_console.debug3( 'Regex check for WebApp failed - its probably just empty')
+					return false
+				}
+				
+				switch( ( webAppRegex[1] || '' ).toLowerCase() ){						
+					case 'api':
+						resultRepo= 'API'
+						break;
+						
+					case 'secure':
+						resultRepo= 'WebApp'
+						break;
+						
+					case 'www':
+					default:
+						resultRepo= 'www'
+						break;
+				}
+				
+				_console.debug3( 'Assuming repo %s', resultRepo)
+				
+				return resultRepo
+			}
+			
+			if( Utils.doesParamExist( 'Repository') ){
+				paramRepo= new Utils.jenkinsParam( 'Repository' )
+				
+			}
+			else {
+				paramRepo = false
+			}
+			
             // Set the visibility of the DB parameters on the initial page load
             showAppropriateDbParams()
 
             setEnvParamVisibility()
 
-            paramRepo.$valueInput.change(function(){
-                _console.debug( 'Repository parameter changed' )
-                showAppropriateDbParams()
-                //setEnvParamVisibility()
-            })
+			// The config doesnt have the repo option
+			if( paramRepo !== false ){
+				paramRepo.$valueInput.change(function(){
+					_console.debug( 'Repository parameter changed' )
+					showAppropriateDbParams()
+					//setEnvParamVisibility()
+				})
+			}
+			
+			// Whenever the web app gets changed, toggle the DB param visibility
+			paramWebApp.$valueInput.change( function(){
+                _console.debug( 'Web application parameter changed' )
 
+                showAppropriateDbParams()
+            })
+			
             // Whenever the Server parameter is changed, then toggle the visibility of the DB params,
             // to show only the appropriate parameters
             paramServer.$valueInput.change( function(){
@@ -1099,7 +1436,7 @@ if ( ! Array.prototype.remove ) {
             paramUpdateEnvFile.$valueInput.change(function() {
                 showAppropriateDbParams()
 
-                serverVals = paramServer.getValue()
+                serverVals = paramServer.value
             })
 
             /**
@@ -1115,8 +1452,9 @@ if ( ! Array.prototype.remove ) {
                 var	_console = new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' )
                 _console.debug( 'Getting selected sites' )
 
-                var 	selected = paramServer.getValue(),
-                       result = [], match
+                var 	selected = paramServer.value,
+                       result = [], 
+					   match
 
                 // If one or more Servers are selected, then parse the selected options
                 if( selected ){
@@ -1175,11 +1513,11 @@ if ( ! Array.prototype.remove ) {
              */
             function showAppropriateDbParams(){
                 var	_console 						= new Utils.console( 'Deployments.manageEnvParams > getSelectedSiteIds' ),
-                       selectedServerOptions 	= paramServer.getValue(),
+                       selectedServerOptions 	= paramServer.value,
                        // All DB Host params - used to keep track of which params need to be hidden after select ones are shown
                        allDbHostParams			= getAllDbHostParams(),
-                       repository 					= paramRepo.value(),
-                       selectedSites 				= getSelectedSiteIds() || [],
+                       //repository 						= paramRepo.value,
+                       selectedSites 					= getSelectedSiteIds() || [],
                        toHide 							= allDbHostParams || [],
                        toShow 						= [],
                        thisParam
@@ -1187,8 +1525,8 @@ if ( ! Array.prototype.remove ) {
                 setEnvParamVisibility()
 
                 // If no servers are selected, or the repo selected doesnt need them, hide the params
-                if ( (selectedServerOptions === null || selectedServerOptions.length === 0 ) ||
-                    $.inArray( repository, settings.envDependentApps ) === -1 ){
+                if ( ( ! selectedServerOptions || selectedServerOptions.length === 0 ) ||
+                    ( assumeRepo() && $.inArray( assumeRepo(), settings.envDependentApps ) === -1 ) ){
 
                     _console.debug( 'No servers are selected - hiding DB related params' )
 
@@ -1202,7 +1540,7 @@ if ( ! Array.prototype.remove ) {
                 }
 
                 // If the Update Env File option is not selected, then hide the parameters
-                if( paramUpdateEnvFile.getValue() != true ){
+                if( paramUpdateEnvFile.value != true ){
                     _console.debug('Update_Env_File value is unchecked - hiding DB related params' )
 
                     // Hide all DB Host params
@@ -1280,14 +1618,12 @@ if ( ! Array.prototype.remove ) {
             }
 
             function setEnvParamVisibility(){
-                var	webappName 	= paramWebApp.getValue(),
-                       webappProject 	= webappName.match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/),
-                       repository 		= paramRepo.getValue()
-
-                console.log('Deploying project in repo:', repository)
+                var	webappName 	= paramWebApp.value,
+                       webappProject 	= webappName.match(/^(?:dev|stage|preprod)?(.*)\.cy-motion.com/)
+                      // repository 			= paramRepo.value
 
                 // Check if the selected repository uses the .env file - if so, show the Update_Env_File param.
-                if( $.inArray( repository, settings.envDependentApps ) !== -1 ){
+                if( assumeRepo() && $.inArray( assumeRepo(), settings.envDependentApps ) !== -1 ){
                     paramUpdateEnvFile.showParam()
                 }
 
@@ -1406,15 +1742,72 @@ if ( ! Array.prototype.remove ) {
         }
     }
 
-    var Home_Tests = {
-        helloWorld: function( pageDetails ){
-            var _console = new Utils.console( 'Home_Tests.helloWorld' )
-
-            _console.log( 'Action: %s', pageDetails.job.action )
-        }
-    }
-
     var General = {
+		/**
+		 * Redirect the viewer to the console of the build that was just executed (if one was found to be executed). This is done 
+		 * by checking if the job.referrer.isBuild property is true, if so, then grab the console link from the first row in the build 
+		 * history. 
+		 *
+		 * Note: Since Jenkins sometimes takes a second or two to add the build history entry, its best to throw this in a 
+		 * setTimeout for 2 seconds or so.
+		 *
+		 * @param		{object}		pageDetails		Page details instance
+		 * @return		{void}
+		 * @todo			Needs to be able to tell if the latest build is throttled/pending, since that wont have a console.
+		 */
+		redirectToConsole: function( pageDetails ){
+			var _console = new Utils.console( 'General.redirectToConsole' )
+			
+			if( ! pageDetails.job || ! pageDetails.job.referrer ){
+				_console.debug3( 'No "job" and/or "job.referrer" properties found in pageDetails - not redirecting' )
+				
+				return
+			}
+			
+			if( pageDetails.job.referrer.isBuild !== true ){
+				_console.debug3( 'The job.referrer.isBuild property is not true - not redirecting' )
+				
+				return
+			}
+			
+			var $buildLink = $( 'tr.build-row:first' )
+	
+			if( ! $buildLink.length ){
+				_console.debug3( 'No build links were found - not redirecting' )
+				return
+			}
+		
+			if( $buildLink.hasClass( 'build-pending' )) {
+				var maxChecks = 4, 
+						checkInterval = 5000,
+						c = 0
+						
+				_console.debug2('The first build entry in the build history list is pending. Will check %s times every %s milliseconds for changes', maxChecks, checkInterval)
+				
+				var checkLoop = setInterval( function(){
+					c++
+					if( $buildLink.hasClass( 'build-pending' ) ){
+						_console.debug3( 'Check # %s - still pending', c )
+						
+						if( c === maxChecks ){
+							_console.debug2( '%s checks have passed and the build is still pending, canceling redirect', c )
+							clearInterval( checkLoop )
+						}
+					} 
+					else {
+						_console.debug3( 'Check # %s - Not pending! Redirecting to %s', c, $buildLink.attr( 'href' ))
+						
+						window.location.href = $buildLink.attr( 'href' )
+					}
+				}, checkInterval )
+			}
+			else {
+				_console.debug2('URL of latest build link in build history table: %s', $buildLink.attr( 'href' ) )
+			
+				window.location.href = $buildLink.attr( 'href' )
+			}
+		},
+		
         /**
          * Watch for any changes to any input parameters for a build, if anything gets changed, then show
          * a confirmation when the viewer tries to leave the page without submitting the build
@@ -1454,7 +1847,7 @@ if ( ! Array.prototype.remove ) {
          * @return	{void}								This function just cancels a form submission at the most.
          */
         requireBuildParams: function requireBuildParams( pageDetails ){
-            var	_console 			= new utils.console( 'General.requireBuildParams' ),
+            var	_console 			= new Utils.console( 'General.requireBuildParams' ),
                    $paramForm 	= $( 'form[name="parameters"]' ),
                    $reqElements 	= $( 'required, span.required-param' ),
                    reqParams 		= {},
@@ -1475,7 +1868,7 @@ if ( ! Array.prototype.remove ) {
                 $reqElements = $( 'required, span.required-param' )
                 // Look for the parameter name of any <required> elements
                 $reqElements.each(function( k, re ){
-                    $reqElem = $( re ).closest('tbody').children('tr:first').children('td.setting-name')
+                    $reqElem = $( re ).closest( 'tbody' ).children( 'tr:first' ).children( 'td.setting-name' )
 
                     if( ! $reqElem.length ){
                         _console.warn( 'couldnt find a param' )
@@ -1512,7 +1905,9 @@ if ( ! Array.prototype.remove ) {
 
             // Validate the parameter inputs when the form gets submitted
             $paramForm.submit(function( e ) {
+		emptyParams = []
                 //e.preventDefault()
+		//alert('no!')
 
                 reqParams = getRequiredParams()
 
@@ -1523,9 +1918,9 @@ if ( ! Array.prototype.remove ) {
                 }
 
                 $.each( reqParams, function( name, param ){
-                    thisVal = param.value()
+                    thisVal = param.value
 
-                    _console.debug( 'The parameter "%s" has te value "%s"', name, param.value() )
+                    _console.debug( 'The parameter "%s" has te value "%s" (length %s)', name, thisVal, thisVal.length )
 
                     if( thisVal.length === 0 )
                         emptyParams.push( name )
@@ -1535,11 +1930,12 @@ if ( ! Array.prototype.remove ) {
                     alert( "Unable to submit build - " + ( emptyParams.length === 1 ? '1 required parameter' : emptyParams.length + ' required parameters') +
                     " were not populated:\n\n- " + emptyParams.join("\n- ") +
                     "\n\nPlease fill out the above parameters and try to execute the build again." )
-                    return false
+                    e.preventDefault()
                 }
                 else {
                     //$paramForm.submit()
-                    return true
+                    //return true
+                    _console.debug2( 'All required parameters populated - allowing form submit' )
                 }
             })
         },
