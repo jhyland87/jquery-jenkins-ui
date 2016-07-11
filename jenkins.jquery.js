@@ -38,11 +38,6 @@
  *			parameter named Repository whenever the Web_Application parameter is changed. The Repository value is based off of the 
  *			Web_Application value. The purpose is to assist the builder in selecting the proper repository for the Web_Application being 
  *			being deployed. Deploying the wrong repository to a web application would be a big problem.
- *
- *
- * TODO:
- *		- Deployments.manageEnvParams() needs to be able to work with silo'd environments, like preprod, where theres no a/b
- *		- Fix the getReqDetails() function, the job segments, name and env are incorrect for pre-prod
  */
  
  // Add a function to the Array prototype for removing an element (or elements) from the array
@@ -864,10 +859,10 @@ if ( ! Array.prototype.remove ) {
 		 */
 		getJobActionFromPath: function( requestPath ){
 			// Get the action being performed
-			var 	_console 		= new Utils.console( 'Utils.getJobActionFromPath' ),
-					actionRegex 	= new RegExp( '/(' + settings.actionVerbs.join( '|' ) + ')/?$' ),
-					actionMatch 	= actionRegex.exec( requestPath ),
-					jobAction 		= {}
+			var _console 	= new Utils.console( 'Utils.getJobActionFromPath' ),
+				actionRegex = new RegExp( '/(' + settings.actionVerbs.join( '|' ) + ')/?$' ),
+				actionMatch = actionRegex.exec( requestPath ),
+				jobAction 	= {}
 					
 			_console.debug3( 'Parameters handed to Utils.getJobActionFromPath:', arguments)
 			
@@ -1072,9 +1067,9 @@ if ( ! Array.prototype.remove ) {
          */
         jenkinsParam: function ( paramName ) {
             var	_thisObj  = this,
-					_console = new Utils.console( 'Utils.jenkinsParam' ),
-					jenkinsParamValueSelector = "[name='" + settings.jenkinsParamValueNames.join( "'],[name='" ) +"']",
-					_param   = {}
+				_console = new Utils.console( 'Utils.jenkinsParam' ),
+				jenkinsParamValueSelector = "[name='" + settings.jenkinsParamValueNames.join( "'],[name='" ) +"']",
+				_param   = {}
 
 			_console.debug( 'jenkinsParamValueSelector:', jenkinsParamValueSelector)
             // Set the prefix for any console output via the internal debug/warn/error/log methods
@@ -1353,6 +1348,30 @@ if ( ! Array.prototype.remove ) {
             // If this is reached, then paramName wasnt a string or an array
             _console.error( 'Unable to %s any parameters - Neither a string or an array was provided', verb )
             return
+        },
+
+        /**
+         * Disable/Enable the build button on the build parameters form
+         *
+         * @param 	{boolean} 	status 		Value to set the 'disabled' attribute to
+         * @return 	{boolean} 				True if it was successful, false if not
+         */
+        setBuildButtonStatus: function( status ){
+        	var _console 	= new Utils.console( 'Utils.setBuildButtonStatus' ),
+        		btnSelector = 'table.parameters > tbody:last > tr > td > span[name="Submit"] > span > button[type="button"]',
+        		$buildBtn 	= $( btnSelector )
+
+        	if( $buildBtn.length === 0 ){
+        		_console.warn( 'Unable to %s the build button - no button element found when using the selector %s', ( status ? 'enable' : 'disable' ), btnSelector )
+        		return false
+        	}
+
+        	$buildBtn.attr( 'disabled', !!status )
+
+
+        	_console.debug3( 'The build button was successfully %s', ( status ? 'enabled' : 'disabled' ) )
+
+        	return true
         }
     }
 
@@ -1927,27 +1946,41 @@ if ( ! Array.prototype.remove ) {
          * @return	{void}								This function just cancels a form submission at the most.
          */
         requireBuildParams: function requireBuildParams( pageDetails ){
-            var	_console 			= new Utils.console( 'General.requireBuildParams' ),
-                   $paramForm 	= $( 'form[name="parameters"]' ),
-                   $reqElements 	= $( 'required, span.required-param' ),
-                   reqParams 		= {},
-                   emptyParams 	= [],
-                   $reqElem,
-                   paramName,
-                   thisVal
+            var	_console 		= new Utils.console( 'General.requireBuildParams' ),
+                $paramForm 		= $( 'form[name="parameters"]' ),
+                $reqElements 	= $( 'required, span.required-param' ),
+                reqParams 		= getRequiredParams(),
+                emptyParams 	= [],
+                $reqElem,
+                //paramName,
+                thisVal
 
-            function isEmpty( val ){
-                if( typeof val === 'object' )
-                    return val.length === 0
-
+            /**
+             * Simple function to determine if a value is "empty". This needs to work for all types of values.
+             *
+             * @param 	{mixed}		value 		Value to check 
+             * @return 	{boolean}				True if its an empty value, otherwise, false
+             */
+            function isEmpty( value ){
+                if( typeof value === 'object' )
+                    return value.length === 0
                 else
-                    return val == ''
+                    return value == ''
             }
 
+            /**
+             * Look through the build parameters form for any required parameters (which are marked by having 
+             * <required></required> in the description)
+             *
+             * @return 	{object}	Object of required parameters. The key is the parameter name, the value is 
+             * 						an instance of Utils.jenkinsParam
+             */
             function getRequiredParams(){
-                $reqElements = $( 'required, span.required-param' )
+            	var result = {}, 
+            	paramName
+
                 // Look for the parameter name of any <required> elements
-                $reqElements.each(function( k, re ){
+                $( 'required, span.required-param' ).each(function( k, re ){
                     $reqElem = $( re ).closest( 'tbody' ).children( 'tr:first' ).children( 'td.setting-name' )
 
                     if( ! $reqElem.length ){
@@ -1958,66 +1991,93 @@ if ( ! Array.prototype.remove ) {
 
                         _console.debug('Adding the parameter %s to the required parameters list',  paramName )
 
-                        reqParams[ paramName ] = new Utils.jenkinsParam( paramName )
+                        result[ paramName ] = new Utils.jenkinsParam( paramName )
                     }
                 })
 
-                return reqParams
+                return result
             }
 
-            /*
-             // Look for the parameter name of any <required> elements
-             $reqElements.each(function( k, re ){
-             $reqElem = $( re ).closest('tbody').children('tr:first').children('td.setting-name')
-
-             if( ! $reqElem.length ){
-             utils.console.warn( 'couldnt find a param' )
-             }
-             else {
-             paramName = $.trim( $reqElem.text() )
-
-             utils.console.debug('Adding the parameter %s to the required parameters list',  paramName )
-
-             reqParams[ paramName ] = utils.getJenkinsParam( paramName )
-             }
-             })
+            /**
+             * Validate Required Parameters - Loop through the parameters that are marked as 'required' in the 
+             * parameters form, and if any of them aren't populated/checked/selected/whatever, then return false. 
+             * Otherwise, return true
+             *
+             * @return 	{boolean} 	TRUE if all required params are populated, FALSE otherwise
              */
-
-            // Validate the parameter inputs when the form gets submitted
-            $paramForm.submit(function( e ) {
-		emptyParams = []
-                //e.preventDefault()
-		//alert('no!')
-
-                reqParams = getRequiredParams()
+            function validateRequiredParams(){
+            	var _emptyParams = [],
+            		_reqParams 	= getRequiredParams()              
 
                 // If none were marked required, just quit
-                if( $.isEmptyObject( reqParams ) ){
-                    _console.debug( 'Not requiring any parameters for this build - None were found' )
+                if( $.isEmptyObject( _reqParams ) ){
+                    //_console.debug3( 'Not requiring any parameters for this build - None were found' )
                     return true
                 }
 
-                $.each( reqParams, function( name, param ){
+                // Loop through each required parameter, collecting any parameters that aren't populated
+                $.each( _reqParams, function( name, param ){
                     thisVal = param.value
 
-                    _console.debug( 'The parameter "%s" has te value "%s" (length %s)', name, thisVal, thisVal.length )
+                    //_console.debug3( 'The parameter "%s" has te value "%s" (length %s)', name, thisVal, thisVal.length )
 
-                    if( thisVal.length === 0 )
-                        emptyParams.push( name )
+                    // Check the value for all required parameters, making sure they are populated/checked/selected/whatever
+                    if( ( param.type === 'checkbox' && param.value !== true ) || thisVal.length === 0 )
+                        _emptyParams.push( name )
                 })
 
-                if( emptyParams.length > 0 ){
-                    alert( "Unable to submit build - " + ( emptyParams.length === 1 ? '1 required parameter' : emptyParams.length + ' required parameters') +
-                    " were not populated:\n\n- " + emptyParams.join("\n- ") +
-                    "\n\nPlease fill out the above parameters and try to execute the build again." )
-                    e.preventDefault()
-                }
-                else {
-                    //$paramForm.submit()
-                    //return true
-                    _console.debug2( 'All required parameters populated - allowing form submit' )
-                }
-            })
+               return _emptyParams.length > 0
+            }
+
+            // If there are any required parameters found, then put the restrictions in place
+			if( Object.keys( reqParams ).length > 0 ){
+				// 1) Once the page fully loads, disable the build button if there are empty required params
+				$( window ).load( function(){
+					Utils.setBuildButtonStatus( validateRequiredParams() )
+				})
+
+				// 2) On each required parameter value input, attach an onChange event listener to update 
+				// the build button status based off of the required parameter inputs
+	            $.each( reqParams, function( paramName, param ){
+	            	_console.debug3('Attached a function to the change event on the value input for parameter %s', paramName )
+
+	            	param.$valueInput.change(function(){
+	            		_console.debug3('The parameter %s was changed - All required parameters %s populated', param, ( validateRequiredParams() ? 'are' : 'are not' ))
+
+	            		Utils.setBuildButtonStatus( validateRequiredParams() )
+	            	})
+	            })
+
+	            // 3) Validate the parameter inputs when the form gets submitted
+	            $paramForm.submit(function( e ) {
+					var _emptyParams = []               
+
+	                // If none were marked required, just quit
+	                if( $.isEmptyObject( reqParams ) ){
+	                    _console.debug( 'Not requiring any parameters for this build - None were found' )
+	                    return true
+	                }
+
+	                $.each( reqParams, function( name, param ){
+	                    thisVal = param.value
+
+	                    _console.debug( 'The parameter "%s" has te value "%s" (length %s)', name, thisVal, thisVal.length )
+
+	                    if( ( param.type === 'checkbox' && param.value !== true ) || thisVal.length === 0 )
+	                        _emptyParams.push( name )
+	                })
+
+	                if( _emptyParams.length > 0 ){
+	                    alert( "Unable to submit build - " + ( _emptyParams.length === 1 ? '1 required parameter' : _emptyParams.length + ' required parameters') +
+	                    " were not populated:\n\n- " + _emptyParams.join("\n- ") +
+	                    "\n\nPlease fill out the above parameters and try to execute the build again." )
+	                    e.preventDefault()
+	                }
+	                else {
+	                    _console.debug2( 'All required parameters populated - allowing form submit' )
+	                }
+	            })
+			}
         },
 
         /**
@@ -2028,8 +2088,8 @@ if ( ! Array.prototype.remove ) {
          * @return	{void}							This function just interacts with the CSS style of HTML elements
          */
         clearPasswordParams: function clearPasswordParams( pageDetails ){
-            var 	_console 		= new Utils.console( 'General.clearPasswordParams' ),
-                   $pwdInputs 	= $( 'input.setting-input:password' )
+            var _console 	= new Utils.console( 'General.clearPasswordParams' ),
+                $pwdInputs 	= $( 'input.setting-input:password' )
 
             $pwdInputs.each(function( i, pi ) {
                 _console.debug( 'Clearing text from password input #', i )
@@ -2046,10 +2106,10 @@ if ( ! Array.prototype.remove ) {
          * @return	{void}
          */
         setBuildPageDescription: function setBuildPageDescription( pageDetails ){
-            var	_console 		= new utils.console( 'General.setBuildPageDescription' ),
-                   $buildDesc 	= $( 'builddesc, builddescription, build-desc, build-description' ),
-                   descHtml,
-                   thisDesc
+            var	_console 	= new utils.console( 'General.setBuildPageDescription' ),
+                $buildDesc 	= $( 'builddesc, builddescription, build-desc, build-description' ),
+                descHtml,
+                thisDesc
 
             if( $buildDesc.length === 0 )
                 return
