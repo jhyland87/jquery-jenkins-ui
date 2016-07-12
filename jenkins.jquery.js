@@ -53,7 +53,7 @@ if ( ! Array.prototype.remove ) {
 	 * Settings
 	 */
 	var settings = {
-		// START Custom user settings -------------------------------------------------------------
+		// Custom User Settings -------------------------------------------------------------------
 		// Environment Folders - Add the names of the folders located in the top level of Jenkins,
 		// that should be considered "environments"
 		envFolders: [
@@ -63,7 +63,10 @@ if ( ! Array.prototype.remove ) {
 		envDependentApps: [ 
 			'API','WebApp' 
 		],
-		// Enable/disable debugging - This is overridden by setting the debug value in the request params
+		// Basic Framework Settings ---------------------------------------------------------------
+		// Settings below this line are used by the Jenkins jQuery framework, and should only be 
+		// Enable/disable debugging - This is overridden by setting the debug value in the request 
+		// params modified if you are fully aware of what will be
 		debug: 0,
 		// Determines if the debug level should be set to whatever the debug value may have been in the 
 		// referrer. This is useful for when you just append ?debug=N to the request URI, then submit a 
@@ -72,13 +75,9 @@ if ( ! Array.prototype.remove ) {
 		// When enabled, a helpful messsage about how to view debugging logs is displayed in the console
 		showDebugHelp: true,
 
-		// END Custom user settings ---------------------------------------------------------------
+		// Advanced Framework Settings ------------------------------------------------------------
 		// Dont change anything below this line, unless you know what you are doing
 
-		/**
-		 * Settings below this line are used by the Jenkins jQuery framework, and should only be 
-		 * modified if you are fully aware of what will be
-		 */
         // Action verbs - This needs to be the exact string to match on the end of the request path
         actionVerbs: [
             'build', 'configure', 'ws', 'rebuild',
@@ -88,7 +87,10 @@ if ( ! Array.prototype.remove ) {
 		buildActions: [
 			'build', 'rebuild'
 		],
-		// 
+		// Jenkins value input element names - Map the elements 'name' attribute as the key to the 
+		// parameter type string
+		// Note: These need to be the names of the parameters hidden input element thats contains the 
+		// parameter name, NOT the value input (thats the settings.jenkinsParamValueNames value)
         jenkinsParamTypes: {
         	file			: 'file-upload',
         	tag				: 'subversion',
@@ -96,7 +98,7 @@ if ( ! Array.prototype.remove ) {
         	credentialType	: 'credentials',
 			labels			: 'node'
         },
-        // Jenkins parameter value names
+        // Names that Jenkins uses for the name of the parameter values inputs.
 		jenkinsParamValueNames: [ 
 			'value', 'labels' 
 		],
@@ -237,7 +239,9 @@ if ( ! Array.prototype.remove ) {
 				//var req = new Utils.pageDetails()
 				
 				console.log( 'Utils.pageDetails username: %s', pageDetails.username )
-	
+		
+				console.log( 'Jenkins Version: %s', ( Utils.getJenkinsVersion() || 'Unknown' ))
+
 				if( false ){
 					setInterval(function(){
 						console.log( 'Debug Level:', Utils.getDebugLevel() )
@@ -248,8 +252,14 @@ if ( ! Array.prototype.remove ) {
 				}
 
 				// Clear the password parameter values on any build/rebuild actions
-				if( pageDetails.job && pageDetails.job.isBuild === true )
+				if( pageDetails.job && pageDetails.job.isBuild === true ){
+					console.log('BUILD')
 					General.clearPasswordParams( pageDetails )
+					General.confirmLeave( pageDetails )
+				}
+				else {
+					console.log('NOT BUILD', pageDetails)
+				}
 				
 				/*
 				// If the viewer has just executed a build action, then redirect to the console 
@@ -613,19 +623,37 @@ if ( ! Array.prototype.remove ) {
         },
 
         /**
+         * Get the Jenkins release version. Done so by parsing the html of the link of the span.jenkins_ver element
+         *
+         * @return 	{boolean,string} 	The release, if found. Otherwise, false
+         */
+        getJenkinsVersion: function(){
+        	$version = $( 'span.jenkins_ver > a:first' )
+
+        	if( ! $version.length )
+        		return false
+
+        	var versionMatch = $version.html().match( /^Jenkins ver\. ([0-9.]+)$/ )
+
+        	return versionMatch 
+        		? versionMatch[ 1 ] 
+        		: false
+        },
+
+        /**
          * Request Details object
          *
          * @todo 	Add a method that can enable/disable the Build button on the build form.
          */
         pageDetails: function pageDetails(){
-            var thisClass 	= this,
+            var thisClass 		= this,
                 _console 	  	= new Utils.console( 'Utils.pageDetails' ),
                 // Try to get the users login from the profile link
-                $accountLink = $( 'div#header > div.login > span > a:first' )
+                $accountLink 	= $( 'div#header > div.login > span > a:first' )
 
-			thisClass.referrer 	 	 = document.referrer || null
-            thisClass.requestPath = window.location.pathname
-            thisClass.username 	 = undefined
+			thisClass.referrer 		= document.referrer || null
+            thisClass.requestPath 	= window.location.pathname
+            thisClass.username 	 	= undefined
 
             /*
 			thisClass.job = {
@@ -789,6 +817,8 @@ if ( ! Array.prototype.remove ) {
 			// Longest... regex... evarrr
 			var reqPathMatches = requestPath.match( settings.regexPatterns.urlRequestPath )
 			
+			_console.debug3( 'reqPathMatches', reqPathMatches )
+
 			// Make sure this was a valid request path
 			if( ! reqPathMatches || typeof reqPathMatches !== 'object' || reqPathMatches[1] === undefined ){
 				_console.error( 'Regex match against the request path string provided (%s) yielded no results - Are you sure this is a valid HTTP request string?', requestPath )
@@ -800,12 +830,14 @@ if ( ! Array.prototype.remove ) {
 			_console.debug2( 'Regex against the request path provided yielded the result: %s', requestPath )
 			
 			// Get the job path and job segments from the URL
-			var  	jobMatch = requestPath.match( settings.regexPatterns.jenkinsJobUrl ),
-					jobPathSegments
+			var jobMatch = requestPath.match( settings.regexPatterns.jenkinsJobUrl ),
+				jobPathSegments
 					
-			 // Loop through the job matches and only get the part thats the job name
+			_console.debug3( 'jobMatch:',jobMatch )
+
+			// Loop through the job matches and only get the part thats the job name
             // TODO Figure out how to only match the required section, the regex pattern above can do it, somehow.
-            if( ! jobMatch || typeof jobMatch !== 'object' || jobMatch[1] === undefined ){
+            if( ! jobMatch || typeof jobMatch !== 'object' ){
             	_console.debug( 'Regex match against %s did not yield a job name', requestPath )
             	return false
             }
@@ -1912,7 +1944,7 @@ if ( ! Array.prototype.remove ) {
          * a confirmation when the viewer tries to leave the page without submitting the build
          */
         confirmLeave: function( pageDetails, onChange ){
-
+        	console.log('pageDetails',pageDetails)
         },
 
         buildParamDependencies: function( pageDetails ){
